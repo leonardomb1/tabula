@@ -1,0 +1,42 @@
+node_modules
+
+# Build artifacts
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Cloudflare — generated bulk-upload file for `wrangler secret bulk`
+.cf-secrets.json
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Docker
+docker-compose.override.yml
+
+# Per-deployment data — docs, attachments, branding SVGs, workspace config.
+# Every deployer populates their own content dir; nothing in here belongs
+# in version control. Covers and branding under content/ are customized
+# per-deployment too.
+/content/
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/

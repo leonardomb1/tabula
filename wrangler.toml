@@ -1,0 +1,47 @@
+# Cloudflare Containers deployment.
+# Deploy:  wrangler deploy
+# Secrets: wrangler secret put SESSION_SECRET   (and so on, per var)
+
+name = "docs"
+main = "cloudflare/worker.ts"
+compatibility_date = "2026-04-16"
+
+# Public custom domain — uncomment and set your own. Requires the zone to
+# be on Cloudflare; `wrangler deploy` will provision the DNS record + cert.
+# routes = [
+# 	{ pattern = "docs.example.com", custom_domain = true }
+# ]
+
+# Persist Worker logs (and container stdout/stderr bubbled through the DO)
+# so `wrangler tail` and the dashboard Logs tab have data to show.
+[observability]
+enabled = true
+
+# ── Container ─────────────────────────────────────────────────────
+# max_instances caps scale-out. Idle sleep is controlled per-class by
+# `sleepAfter` in cloudflare/worker.ts (currently 10m). The first
+# request after idle pays a 1-3s cold-start.
+[[containers]]
+class_name = "Docs"
+image = "./Dockerfile"
+max_instances = 3
+# `dev` (256MB) is too small for Puppeteer/Chromium — silent OOM during
+# browser.launch hangs the PDF endpoint indefinitely. `standard-1` gives
+# 4GB RAM + a real vCPU slice. `basic` (1GB) might also work.
+instance_type = "standard-1"
+
+# ── Durable Object binding for the container ─────────────────────
+[[durable_objects.bindings]]
+class_name = "Docs"
+name = "DOCS"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Docs"]
+
+# ── Configuration ────────────────────────────────────────────────
+# All app config (keys, branding, storage, auth, etc.) is uploaded
+# via `wrangler secret bulk .cf-secrets.json` — generated from .env
+# by `bun scripts/env-to-cf-secrets.ts`. Cloudflare disallows the
+# same binding name in both `[vars]` and secrets, so this file
+# intentionally has no `[vars]` block.

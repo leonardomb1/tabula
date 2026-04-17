@@ -1,0 +1,21 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+@import 'katex/dist/katex.min.css';
+
+/* Stop rogue wide children (code, tables, KaTeX, mermaid) from giving the
+   whole page a horizontal scrollbar on mobile. Applied to body only —
+   putting it on `html` as well can break momentum scrolling on iOS. */
+body { overflow-x: clip; }
+
+/* Common overflow culprits inside rendered markdown. These apply globally
+   because .doc-body styles are defined per-page as :global() anyway. */
+.doc-body img,
+.doc-body svg,
+.doc-body video { max-width: 100%; height: auto; }
+.doc-body pre.mermaid svg { width: 100%; height: auto; }
+.doc-body .katex-display {
+	overflow-x: auto;
+	overflow-y: hidden;
+	max-width: 100%;
+}

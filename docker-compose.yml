@@ -1,0 +1,12 @@
+services:
+  docs:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file: .env
+    # Bind-mount the host's ./content so logos, attachments, covers, and
+    # docs edited on the host are visible in the container (and vice versa).
+    # When STORAGE=s3 the app ignores this mount and reads from R2 instead.
+    volumes:
+      - ./content:/app/content

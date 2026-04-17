@@ -1,0 +1,35 @@
+import { getAllDocs } from '$lib/server/docsIndex';
+import { listForUser, getForUser, DEFAULT_WS_ID, PERSONAL_PREFIX, type Workspace } from '$lib/server/workspaces';
+import type { PageServerLoad } from './$types';
+
+export const load: PageServerLoad = async ({ locals, cookies }) => {
+	// Build the visible workspace list. Unauthenticated visitors see only the
+	// default team (mostly a defensive code path — / is auth-gated).
+	const username = locals.user?.username;
+	const workspaces: Workspace[] = username
+		? await listForUser(username)
+		: [{ id: DEFAULT_WS_ID, name: 'Geral', kind: 'team' }];
+
+	// Resolve current workspace: cookie first, then Personal default for the
+	// logged-in user, then the default team.
+	const cookieWs = cookies.get('docs_ws');
+	let current: Workspace | null = null;
+	if (cookieWs && username) current = await getForUser(username, cookieWs);
+	if (!current && username) {
+		current = workspaces.find((w) => w.id === `${PERSONAL_PREFIX}${username}`) ?? null;
+	}
+	if (!current) current = workspaces[0];
+
+	const cached = await getAllDocs(current.id);
+	const docs = cached
+		.map((d) => {
+			const tags = Array.isArray(d.frontmatter.tags) ? d.frontmatter.tags.map(String) : [];
+			const date = d.frontmatter.date ? new Date(d.frontmatter.date as unknown as Date) : null;
+			return { slug: d.slug, title: d.title, mtime: d.mtime, date, tags };
+		})
+		.sort((a, b) => (b.date ?? b.mtime).getTime() - (a.date ?? a.mtime).getTime());
+
+	const allTags = [...new Set(docs.flatMap((d) => d.tags))].sort();
+
+	return { docs, allTags, workspaces, currentWs: current };
+};
