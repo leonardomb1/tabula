@@ -18,6 +18,7 @@ const {
 	OIDC_CLIENT_SECRET,
 	OIDC_SCOPES,
 	OIDC_ALLOWED_GROUPS,
+	OIDC_GROUPS_CLAIMS,
 	PLATFORM_ADMIN_LDAP_GROUPS,
 	PLATFORM_ADMIN_OIDC_GROUPS,
 	ORIGIN
@@ -38,6 +39,42 @@ const {
  */
 function splitList(s: string | undefined): string[] {
 	return s ? s.split('|').map((x) => x.trim()).filter(Boolean) : [];
+}
+
+/**
+ * Flatten whatever groups/roles-shaped data an OIDC provider emits into a
+ * single `string[]` that the rest of the app matches against. Shape-agnostic:
+ *
+ *   - Array of strings  → each string is a group (Keycloak, Authentik, Okta, …)
+ *   - Object            → each KEY is a group (ZITADEL roles, keyed by role name)
+ *   - String scalar     → single-value group (rare, but free to support)
+ *   - Anything else     → skipped
+ *
+ * The claim paths consulted come from `OIDC_GROUPS_CLAIMS` (pipe-separated).
+ * Default covers the two most common names so it works out of the box; users
+ * whose provider emits something exotic just extend the env.
+ *
+ * For ZITADEL, set:
+ *   OIDC_GROUPS_CLAIMS=groups|roles|urn:zitadel:iam:org:project:roles
+ *
+ * Duplicates across paths are de-duped.
+ */
+const DEFAULT_GROUPS_CLAIMS = 'groups|roles';
+
+function extractOidcGroups(c: Record<string, unknown>): string[] {
+	const paths = splitList(OIDC_GROUPS_CLAIMS || DEFAULT_GROUPS_CLAIMS);
+	const out = new Set<string>();
+	for (const path of paths) {
+		const v = c[path];
+		if (Array.isArray(v)) {
+			for (const item of v) if (typeof item === 'string') out.add(item);
+		} else if (v && typeof v === 'object') {
+			for (const k of Object.keys(v as Record<string, unknown>)) out.add(k);
+		} else if (typeof v === 'string') {
+			out.add(v);
+		}
+	}
+	return [...out];
 }
 
 function computeIsPlatformAdmin(
@@ -315,13 +352,14 @@ export async function finishOidcAuth(
 			// userinfo is optional per spec; fall back to id_token claims only.
 		}
 
-		// Optional group gating
+		const oidcGroups = extractOidcGroups(c);
+
+		// Optional group gating — matched against the flattened set so a
+		// ZITADEL user with a role of `docs-admins` gates identically to a
+		// Keycloak user with a group of `docs-admins`.
 		if (OIDC_ALLOWED_GROUPS) {
 			const wanted = OIDC_ALLOWED_GROUPS.split('|').map((g) => g.trim()).filter(Boolean);
-			const userGroups = Array.isArray(c.groups)
-				? (c.groups as unknown[]).filter((g): g is string => typeof g === 'string')
-				: [];
-			const allowed = wanted.some((g) => userGroups.includes(g));
+			const allowed = wanted.some((g) => oidcGroups.includes(g));
 			if (!allowed) return { ok: false, error: 'Usuário sem grupo autorizado.' };
 		}
 
@@ -333,10 +371,6 @@ export async function finishOidcAuth(
 			(typeof c.name === 'string' && c.name) ||
 			(typeof c.preferred_username === 'string' && c.preferred_username) ||
 			username;
-
-		const oidcGroups = Array.isArray(c.groups)
-			? (c.groups as unknown[]).filter((g): g is string => typeof g === 'string')
-			: [];
 
 		return {
 			ok: true,
