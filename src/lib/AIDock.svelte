@@ -5,7 +5,10 @@
 
 	// Context — the current doc slug if any. Threaded through so the server
 	// can bias answers toward the page the user is reading.
-	let { currentSlug = null }: { currentSlug?: string | null } = $props();
+	let {
+		currentSlug = null,
+		currentWs = null
+	}: { currentSlug?: string | null; currentWs?: string | null } = $props();
 
 	const open = $derived(aiDock.open);
 
@@ -16,7 +19,7 @@
 	let bodyEl = $state<HTMLDivElement | null>(null);
 	let inputEl = $state<HTMLTextAreaElement | null>(null);
 
-	type Ref = { slug: string; quote: string };
+	type Ref = { wsId: string; slug: string; quote: string };
 	type Message = { role: 'user' | 'assistant'; content: string; refs?: Ref[] };
 	let messages = $state<Message[]>([]);
 	let streamingContent = $state('');
@@ -31,7 +34,8 @@
 				try {
 					const refs: Ref[] = JSON.parse(match.slice('REFS:'.length));
 					for (const r of refs) {
-						const key = `${r.slug}::${r.quote}`;
+						if (!r?.wsId || !r?.slug || !r?.quote) continue;
+						const key = `${r.wsId}::${r.slug}::${r.quote}`;
 						if (!seen.has(key)) { seen.add(key); allRefs.push(r); }
 					}
 				} catch { /* malformed REFS */ }
@@ -42,8 +46,8 @@
 		return { body, refs: allRefs };
 	}
 
-	function citationHref(slug: string, quote: string) {
-		return `/${slug}?highlight=${encodeURIComponent(quote)}`;
+	function citationHref(wsId: string, slug: string, quote: string) {
+		return `/w/${wsId}/${slug}?highlight=${encodeURIComponent(quote)}`;
 	}
 
 	async function fetchAI(q: string) {
@@ -58,7 +62,7 @@
 			const res = await fetch('/api/ai', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ question: q, currentSlug, history: historyToSend })
+				body: JSON.stringify({ question: q, currentSlug, currentWs, history: historyToSend })
 			});
 
 			if (!res.ok) {
@@ -230,7 +234,7 @@
 							{#if msg.refs && msg.refs.length > 0}
 								<div class="refs">
 									{#each msg.refs as ref}
-										<a href={citationHref(ref.slug, ref.quote)} class="ref-chip" target="_blank" rel="noopener" title={ref.quote}>
+										<a href={citationHref(ref.wsId, ref.slug, ref.quote)} class="ref-chip" target="_blank" rel="noopener" title={ref.quote}>
 											/{ref.slug}
 										</a>
 									{/each}

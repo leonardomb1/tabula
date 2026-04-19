@@ -15,6 +15,16 @@
 		page.params.slug ?? page.url.searchParams.get('edit') ?? null
 	);
 
+	// Current workspace — from /w/[ws]/[slug] path params when available, else
+	// the ?ws= query param used by /new. Falls back to null on routes like /
+	// where the layout's own currentWs.id is the authoritative choice.
+	const currentWs = $derived(
+		page.params.ws ??
+			page.url.searchParams.get('ws') ??
+			(data as { currentWs?: { id: string } | null }).currentWs?.id ??
+			null
+	);
+
 	// Global delegate for the .code-copy button rendered inside every code
 	// block by the markdown pipeline. Using delegation (rather than a handler
 	// per button) keeps dynamically-streamed content — AI answers, live
@@ -55,7 +65,7 @@
 	{@render children()}
 
 	{#if data.user}
-		<AIDock currentSlug={currentSlug} />
+		<AIDock currentSlug={currentSlug} currentWs={currentWs} />
 		<WorkspaceModal />
 	{/if}
 </div>

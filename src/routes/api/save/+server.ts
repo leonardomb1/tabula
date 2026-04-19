@@ -1,8 +1,9 @@
 import { json, error } from '@sveltejs/kit';
 import matter from 'gray-matter';
-import { getText, putText, remove, list } from '$lib/server/storage';
-import { upsertDoc, renameDoc, slugToKey, historyPrefix } from '$lib/server/docsIndex';
+import { exists, getText, putText } from '$lib/server/storage';
+import { upsertDoc, slugToKey, historyPrefix } from '$lib/server/docsIndex';
 import { DEFAULT_WS_ID, canWrite } from '$lib/server/workspaces';
+import { newDocId } from '$lib/ids';
 import type { RequestHandler } from './$types';
 
 function validSlug(s: unknown): s is string {
@@ -19,36 +20,39 @@ async function snapshot(wsId: string, slug: string): Promise<void> {
 	await putText(`${historyPrefix(wsId)}${slug}/${Date.now()}.md`, current);
 }
 
-async function moveHistory(wsId: string, oldSlug: string, newSlug: string): Promise<void> {
-	const oldPrefix = `${historyPrefix(wsId)}${oldSlug}/`;
-	const keys = await list(oldPrefix);
-	for (const { key } of keys) {
-		const content = await getText(key);
-		if (content == null) continue;
-		const newKey = key.replace(oldPrefix, `${historyPrefix(wsId)}${newSlug}/`);
-		await putText(newKey, content);
-		await remove(key);
+/**
+ * Pick an id that isn't already taken in this workspace. At 10 base62
+ * chars the random collision probability is negligible, but checking
+ * `exists` anyway costs nothing and rules out adversarial / ultra-rare
+ * cases. We retry a handful of times before giving up.
+ */
+async function mintUniqueId(wsId: string): Promise<string> {
+	for (let i = 0; i < 8; i++) {
+		const id = newDocId();
+		if (!(await exists(slugToKey(wsId, id)))) return id;
 	}
+	throw new Error('Failed to mint a unique id after 8 attempts');
 }
 
 export const POST: RequestHandler = async ({ request, url, locals }) => {
-	const { slug, content, oldSlug } = await request.json();
+	const { slug, content } = await request.json();
 	const wsParam = url.searchParams.get('ws');
 	const wsId = validWsId(wsParam) ? wsParam : DEFAULT_WS_ID;
 
-	if (!validSlug(slug)) error(400, 'Slug inválido — use letras, números, hífens e underscores');
 	if (!content || typeof content !== 'string') error(400, 'Conteúdo obrigatório');
-	if (oldSlug !== undefined && !validSlug(oldSlug)) error(400, 'oldSlug inválido');
-	// Gate on `editor` role — viewers see the edit form in the UI for
-	// now (they can reach /new), so we stop the write here. 403 rather
-	// than 404 so the client can show "sem permissão" instead of
-	// pretending the workspace doesn't exist.
+	if (slug !== undefined && !validSlug(slug)) error(400, 'Slug inválido');
+
 	if (!locals.user) error(401, 'Autenticação obrigatória');
 	if (!(await canWrite(locals.user, wsId))) error(403, 'Sem permissão para editar este workspace');
 
-	const isRename = oldSlug && oldSlug !== slug;
+	// New doc: client sends no `slug`, server mints one. Existing doc: client
+	// echoes the slug back so we know which file to overwrite. Renames went
+	// away when slugs stopped being user-editable — the URL is stable for the
+	// life of the document.
+	const finalSlug = slug ?? (await mintUniqueId(wsId));
 
-	// Inject minimal frontmatter if the doc has none
+	// Inject minimal frontmatter if the doc has none so the viewer has
+	// something to render as author/date metadata.
 	const parsed = matter(content);
 	let finalContent = content;
 	if (Object.keys(parsed.data).length === 0) {
@@ -57,17 +61,9 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		finalContent = `---\nauthor: ${author}\ndate: ${today}\n---\n\n${content}`;
 	}
 
-	await snapshot(wsId, isRename ? oldSlug : slug);
+	await snapshot(wsId, finalSlug);
+	await putText(slugToKey(wsId, finalSlug), finalContent);
+	await upsertDoc(wsId, finalSlug, finalContent);
 
-	await putText(slugToKey(wsId, slug), finalContent);
-
-	if (isRename) {
-		await moveHistory(wsId, oldSlug, slug);
-		await remove(slugToKey(wsId, oldSlug));
-		await renameDoc(wsId, oldSlug, slug);
-	}
-
-	await upsertDoc(wsId, slug, finalContent);
-
-	return json({ ok: true, slug, ws: wsId });
+	return json({ ok: true, slug: finalSlug, ws: wsId });
 };

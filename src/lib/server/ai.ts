@@ -3,16 +3,19 @@ import { AzureOpenAI } from 'openai';
 
 const SYSTEM_PROMPT = `You are a helpful assistant for an internal documentation platform.
 Answer questions based solely on the provided documents.
+The documents below are scoped to the current user — every one of them is
+something this user has access to. You may freely cite any of them.
 When the user is viewing a specific page, treat it as their primary context.
 If the answer is not in the documents, say so clearly.
 Be concise and direct. Format your response in markdown.
 
 After your answer, if you used specific passages from the documents, append exactly one line in this format (no prose, no label, just the JSON):
-REFS:[{"slug":"document-slug","quote":"verbatim excerpt from that document, max 120 chars"}]
+REFS:[{"wsId":"workspace-id","slug":"document-slug","quote":"verbatim excerpt, max 120 chars"}]
 
 Rules for REFS:
 - Only include passages you actually quoted or paraphrased directly.
 - The quote must be copied verbatim from the source text (exact casing and punctuation).
+- Copy wsId and slug exactly as they appear in the document header "### (/w/<wsId>/<slug>)".
 - Omit REFS entirely if you made no direct reference to specific passages.`;
 
 export function getProvider(): 'anthropic' | 'azure-openai' | null {
@@ -28,20 +31,21 @@ export function getProvider(): 'anthropic' | 'azure-openai' | null {
 type HistoryMessage = { role: 'user' | 'assistant'; content: string };
 
 export async function* streamAnswer(
-	docs: { slug: string; title: string; body: string }[],
+	docs: { wsId: string; slug: string; title: string; body: string }[],
 	question: string,
 	currentSlug?: string | null,
+	currentWs?: string | null,
 	history?: HistoryMessage[]
 ): AsyncGenerator<string> {
 	const provider = getProvider();
 	if (!provider) throw new Error('AI not configured');
 
 	const context = docs
-		.map((d) => `### "${d.title}" (/${d.slug})\n\n${d.body.slice(0, 4000)}`)
+		.map((d) => `### "${d.title}" (/w/${d.wsId}/${d.slug})\n\n${d.body.slice(0, 4000)}`)
 		.join('\n\n---\n\n');
 
 	const pageNote = currentSlug
-		? `[The user is currently viewing: /${currentSlug} — treat it as primary context.]`
+		? `[The user is currently viewing: /w/${currentWs ?? '?'}/${currentSlug} — treat it as primary context.]`
 		: '';
 
 	// History is clean question/answer pairs — no document context embedded.

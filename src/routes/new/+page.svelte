@@ -181,12 +181,12 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 	async function save() {
 		error = '';
-		if (!slug.trim()) { error = 'Nome do documento obrigatório'; return; }
 		saving = true;
-		const body: Record<string, string> = { slug: slug.trim(), content };
-		if (editingExisting && originalSlug && originalSlug !== slug.trim()) {
-			body.oldSlug = originalSlug;
-		}
+		// Creation: omit slug entirely — the server mints a stable id and
+		// returns it. Editing: echo the existing slug so the save path
+		// overwrites the right file. Renames aren't supported anymore.
+		const body: Record<string, string> = { content };
+		if (editingExisting && slug.trim()) body.slug = slug.trim();
 		const res = await fetch(`/api/save?ws=${wsId}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -199,12 +199,11 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 			savedFlash = true;
 			if (savedFlashTimer) clearTimeout(savedFlashTimer);
 			savedFlashTimer = setTimeout(() => (savedFlash = false), 1400);
-			// When editing an existing doc, stay on the page and let the user
-			// keep working; for new docs, navigate to the viewer.
+			const result = await res.json();
+			// On create, navigate to the viewer at the server-minted slug.
+			// On edit, stay on the page — same slug, user keeps writing.
 			if (!editingExisting) {
-				goto(`/w/${wsId}/${slug.trim()}`);
-			} else {
-				originalSlug = slug.trim();
+				goto(`/w/${wsId}/${result.slug}`);
 			}
 		} else {
 			const data = await res.json();
@@ -512,14 +511,12 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 			<a class="crumb" href="/">{data.ws.name}</a>
 			<span class="brand-sep">›</span>
 			<span class="slug-crumb">
-				<span class="slug-prefix">/</span>
-				<input
-					class="slug-input"
-					type="text"
-					placeholder="nome-do-documento"
-					bind:value={slug}
-					spellcheck="false"
-				/>
+				{#if editingExisting}
+					<span class="slug-prefix">/</span>
+					<span class="slug-readonly" title="URL imutável — edite o título no conteúdo">{slug}</span>
+				{:else}
+					<span class="slug-readonly is-draft">rascunho — URL atribuída ao salvar</span>
+				{/if}
 			</span>
 		</div>
 
@@ -755,17 +752,18 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 	.slug-prefix { color: var(--ink-muted); margin-right: 2px; }
 
-	.slug-input {
-		background: none;
-		border: 0;
-		outline: 0;
+	/* Read-only slug display — slugs are server-minted now, not user-typed. */
+	.slug-readonly {
 		color: var(--ink);
 		font: inherit;
-		min-width: 180px;
-		padding: 0;
+		min-width: 120px;
+		user-select: text;
 	}
 
-	.slug-input::placeholder { color: var(--ink-muted); }
+	.slug-readonly.is-draft {
+		color: var(--ink-muted);
+		font-style: italic;
+	}
 
 	.spacer { flex: 1; }
 
@@ -1323,7 +1321,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		.editor-shell { grid-template-rows: auto auto auto 1fr; }
 		.top-bar { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px; }
 		.sub-bar { padding: 0 12px; }
-		.slug-input { min-width: 120px; }
+		.slug-readonly { min-width: 120px; }
 
 		.menu-toggle { display: inline-flex; }
 		.editor-extras {
@@ -1386,7 +1384,13 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		.brand { gap: 6px; flex-wrap: nowrap; }
 		.crumb, .brand-sep { display: none; }
 		.slug-crumb { flex: 1; min-width: 0; }
-		.slug-input { min-width: 0; width: 100%; }
+		.slug-readonly {
+			min-width: 0;
+			width: 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
 
 		.autosave { display: none; }
 
