@@ -1,7 +1,8 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { renderMarkdown } from '$lib/markdown';
-import { getDoc } from '$lib/server/docsIndex';
-import { DEFAULT_WS_ID } from '$lib/server/workspaces';
+import { getDoc, type CachedDoc } from '$lib/server/docsIndex';
+import { listAllWorkspaces } from '$lib/server/workspacesAdmin';
+import { slugifyTitle } from '$lib/ids';
 import {
 	getStyleForTemplate,
 	parseReferences,
@@ -11,18 +12,33 @@ import {
 } from '$lib/server/pdf/citations';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params }) => {
+export const load: PageServerLoad = async ({ params, url }) => {
 	const { slug } = params;
+	const titleSeg = params.title ?? '';
 	if (!/^[a-zA-Z0-9_-]+$/.test(slug)) error(400, 'Slug inválido');
+	if (titleSeg && !/^[a-z0-9-]+$/.test(titleSeg)) error(400, 'Título inválido');
 
-	// Phase 1: public docs resolve from the default workspace only. Phase 2
-	// will iterate every workspace and merge any doc with public:true.
-	const doc = await getDoc(DEFAULT_WS_ID, slug);
+	// Ids are globally unique but stored per-workspace. Scan every workspace
+	// and return the first hit that opts into public access.
+	const workspaces = await listAllWorkspaces();
+	let doc: CachedDoc | null = null;
+	for (const ws of workspaces) {
+		const hit = await getDoc(ws.id, slug);
+		if (hit && hit.frontmatter.public === true) {
+			doc = hit;
+			break;
+		}
+	}
 	if (!doc) error(404, 'Documento não encontrado');
 
 	const rendered = renderMarkdown(doc.source);
 	const { toc, title, frontmatter } = rendered;
-	if (frontmatter.public !== true) error(404, 'Documento não encontrado');
+
+	const canonicalTitle = slugifyTitle(title);
+	if (canonicalTitle && titleSeg !== canonicalTitle) {
+		redirect(301, `/public/${slug}/${canonicalTitle}${url.search}`);
+	}
+
 	let html = rendered.html;
 
 	// Reading stats — off the raw source so markup doesn't inflate counts.

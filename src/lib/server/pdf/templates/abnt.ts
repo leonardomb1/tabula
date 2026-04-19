@@ -128,7 +128,10 @@ interface SimboloEntry {
 interface AbntOptions {
 	instituicao?: string;
 	curso?: string;
-	autor?: string;
+	/** Accepts a single author (string) or multiple authors (string[]).
+	 *  Multiple authors are rendered one per line on the capa, folha de
+	 *  rosto and banca avaliadora, per FATEC manual §4.1.2/§4.1.3. */
+	autor?: string | string[];
 	natureza?: string;
 	orientador?: string;
 	cidade?: string;
@@ -234,6 +237,12 @@ function asSimboloList(v: unknown): SimboloEntry[] | undefined {
 	return out.length ? out : undefined;
 }
 
+function asStringOrArray(v: unknown): string | string[] | undefined {
+	if (typeof v === 'string') return v;
+	if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v as string[];
+	return undefined;
+}
+
 function readOptions(raw: Record<string, unknown>): AbntOptions {
 	const rawFont = asString(raw.font)?.toLowerCase();
 	const font: 'times' | 'arial' | undefined =
@@ -241,7 +250,7 @@ function readOptions(raw: Record<string, unknown>): AbntOptions {
 	return {
 		instituicao: asString(raw.instituicao),
 		curso: asString(raw.curso),
-		autor: asString(raw.autor),
+		autor: asStringOrArray(raw.autor),
 		natureza: asString(raw.natureza),
 		orientador: asString(raw.orientador),
 		cidade: asString(raw.cidade),
@@ -287,8 +296,13 @@ function buildCss(fontChoice: 'times' | 'arial' | undefined): string {
 
 /* Pre-textual pages (capa, folha de rosto, dedicatória, etc.) are counted
    but unnumbered per NBR 14724 §5.4. The counter advances so the first
-   textual page displays its real absolute position. */
+   textual page displays its real absolute position.
+   size + margin are re-declared because Chromium does not reliably
+   inherit them from the default @page on named pages (same quirk that
+   bit the Argos cover — without this the cap-foot floats up ~17 mm). */
 @page abnt-pre {
+	size: A4;
+	margin: 3cm 2cm 2cm 3cm;
 	@top-right { content: none; }
 }
 
@@ -767,6 +781,19 @@ body { margin: 0; padding: 0; }
 .abnt-body ul + p,
 .abnt-body ol + p { text-indent: 0; }
 
+/* Table / figure captions and "Fonte:" lines — NBR 14724 §5.8: caption
+   above, source below, both centralizados. Markdown emits these as plain
+   paragraphs adjacent to the table/figure, so we catch them by position:
+   any <p> immediately before or after a <table> or <figure>. */
+.abnt-body p:has(+ table),
+.abnt-body table + p,
+.abnt-body p:has(+ figure),
+.abnt-body figure + p {
+	text-align: center;
+	text-indent: 0;
+}
+
+
 .abnt-body ul,
 .abnt-body ol {
 	margin: 0.5em 0 0.5em 1.25cm;
@@ -806,12 +833,13 @@ body { margin: 0; padding: 0; }
 	overflow: hidden;
 }
 
-/* Tables — NBR 14724: caption on top, source below.
-   Fonte 10pt (FATEC §1.3). */
+/* Tables — NBR 14724: caption on top, source below. Fonte 10pt (FATEC
+   §1.3). §3.2: "A tabela deve ser apresentada centralizada." width:100%
+   covers the full-width case; margin auto covers narrower tables. */
 .abnt-body table {
 	width: 100%;
 	border-collapse: collapse;
-	margin: 1em 0;
+	margin: 1em auto;
 	font-size: 10pt;
 	break-inside: avoid;
 }
@@ -913,9 +941,26 @@ function esc(s: string): string {
 		.replace(/>/g, '&gt;');
 }
 
+/**
+ * Resolve the author list as a clean string[]. Prefers `abnt.autor` when
+ * provided; falls back to the document's root `author` frontmatter.
+ * Accepts string or string[] in either place. Manual §4.1.2/§4.1.3:
+ * multiple authors render one per line, not comma-separated.
+ */
+function resolveAutores(opts: AbntOptions, meta: RenderContext['meta']): string[] {
+	const src = opts.autor ?? meta.author;
+	if (!src) return [];
+	if (Array.isArray(src)) return src.map((s) => String(s).trim()).filter(Boolean);
+	return [String(src).trim()].filter(Boolean);
+}
+
+function renderAutores(autores: string[]): string {
+	return autores.map((a) => `<div>${esc(a)}</div>`).join('');
+}
+
 function buildCapa(opts: AbntOptions, meta: RenderContext['meta']): string {
 	const instituicao = opts.instituicao ?? '';
-	const autor = opts.autor ?? (Array.isArray(meta.author) ? meta.author[0] : meta.author) ?? '';
+	const autores = resolveAutores(opts, meta);
 	const cidade = opts.cidade ?? '';
 	const ano = opts.ano ?? (meta.date ? new Date(meta.date).getFullYear().toString() : '');
 
@@ -923,7 +968,7 @@ function buildCapa(opts: AbntOptions, meta: RenderContext['meta']): string {
 <section class="abnt-capa">
 	<div class="cap-top">
 		${instituicao ? `<div class="cap-inst">${esc(instituicao)}</div>` : ''}
-		${autor ? `<div class="cap-autor">${esc(autor)}</div>` : ''}
+		${autores.length ? `<div class="cap-autor">${renderAutores(autores)}</div>` : ''}
 	</div>
 	<h1 class="cap-title">${esc(meta.title)}</h1>
 	<div class="cap-foot">
@@ -936,7 +981,7 @@ function buildCapa(opts: AbntOptions, meta: RenderContext['meta']): string {
 function buildFolhaDeRosto(opts: AbntOptions, meta: RenderContext['meta']): string {
 	const instituicao = opts.instituicao ?? '';
 	const curso = opts.curso ?? '';
-	const autor = opts.autor ?? (Array.isArray(meta.author) ? meta.author[0] : meta.author) ?? '';
+	const autores = resolveAutores(opts, meta);
 	const cidade = opts.cidade ?? '';
 	const ano = opts.ano ?? (meta.date ? new Date(meta.date).getFullYear().toString() : '');
 
@@ -954,7 +999,7 @@ function buildFolhaDeRosto(opts: AbntOptions, meta: RenderContext['meta']): stri
 	<div class="ros-top">
 		${instituicao ? `<div class="ros-inst">${esc(instituicao)}</div>` : ''}
 		${curso ? `<div class="ros-curso">${esc(curso)}</div>` : ''}
-		${autor ? `<div class="ros-autor">${esc(autor)}</div>` : ''}
+		${autores.length ? `<div class="ros-autor">${renderAutores(autores)}</div>` : ''}
 	</div>
 	<div class="ros-middle">
 		<h1 class="ros-title">${esc(meta.title)}</h1>
@@ -1000,7 +1045,7 @@ function buildErrata(opts: AbntOptions): string {
 
 function buildBanca(opts: AbntOptions, meta: RenderContext['meta']): string {
 	if (!opts.banca || opts.banca.length === 0) return '';
-	const autor = opts.autor ?? (Array.isArray(meta.author) ? meta.author[0] : meta.author) ?? '';
+	const autores = resolveAutores(opts, meta);
 
 	const members = opts.banca
 		.map(
@@ -1016,7 +1061,7 @@ function buildBanca(opts: AbntOptions, meta: RenderContext['meta']): string {
 <section class="abnt-banca">
 	<div class="ban-top">
 		${opts.instituicao ? `<div>${esc(opts.instituicao)}</div>` : ''}
-		${autor ? `<div class="ban-autor">${esc(autor)}</div>` : ''}
+		${autores.length ? `<div class="ban-autor">${renderAutores(autores)}</div>` : ''}
 	</div>
 	<div class="ban-title">${esc(meta.title)}</div>
 	<div class="ban-list">${members}</div>
@@ -1086,19 +1131,26 @@ function buildPreTextual(opts: AbntOptions): string {
 	return parts.join('\n');
 }
 
+// Render a single list entry. When `pagina` is empty we drop the dotted
+// fill + page column entirely — otherwise the row ends with a meaningless
+// run of dots across the whole line, which is exactly what the user was
+// seeing on the rendered Lista de Tabelas.
+function renderListaItem(rotulo: string, titulo: string, pagina?: string): string {
+	const hasPg = !!(pagina && pagina.trim());
+	const pg = hasPg
+		? `<span class="li-fill"></span><span class="li-pg">${esc(pagina!)}</span>`
+		: '';
+	return `
+		<li>
+			<span class="li-label">${esc(rotulo)}</span>
+			<span class="li-title">${esc(titulo)}</span>
+			${pg}
+		</li>`;
+}
+
 function buildListaIlustracoes(opts: AbntOptions): string {
 	if (!opts.listaIlustracoes || opts.listaIlustracoes.length === 0) return '';
-	const items = opts.listaIlustracoes
-		.map(
-			(it) => `
-		<li>
-			<span class="li-label">${esc(it.rotulo)}</span>
-			<span class="li-title">${esc(it.titulo)}</span>
-			<span class="li-fill"></span>
-			<span class="li-pg">${esc(it.pagina ?? '')}</span>
-		</li>`
-		)
-		.join('');
+	const items = opts.listaIlustracoes.map((it) => renderListaItem(it.rotulo, it.titulo, it.pagina)).join('');
 	return `
 <section class="abnt-lista">
 	<h1>Lista de Ilustrações</h1>
@@ -1108,17 +1160,7 @@ function buildListaIlustracoes(opts: AbntOptions): string {
 
 function buildListaTabelas(opts: AbntOptions): string {
 	if (!opts.listaTabelas || opts.listaTabelas.length === 0) return '';
-	const items = opts.listaTabelas
-		.map(
-			(it) => `
-		<li>
-			<span class="li-label">${esc(it.rotulo)}</span>
-			<span class="li-title">${esc(it.titulo)}</span>
-			<span class="li-fill"></span>
-			<span class="li-pg">${esc(it.pagina ?? '')}</span>
-		</li>`
-		)
-		.join('');
+	const items = opts.listaTabelas.map((it) => renderListaItem(it.rotulo, it.titulo, it.pagina)).join('');
 	return `
 <section class="abnt-lista">
 	<h1>Lista de Tabelas</h1>

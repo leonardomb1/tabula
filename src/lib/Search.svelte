@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import type { SearchResult } from '../routes/api/search/+server';
 	import { openAiWith } from './aiDock.svelte';
+	import { docPath } from './ids';
 
 	type Heading = { id: string; text: string; level: number };
 
@@ -75,7 +76,7 @@
 
 	function pickDoc(r: SearchResult) {
 		closePalette();
-		goto(`/w/${r.wsId}/${r.slug}`);
+		goto(docPath(r.wsId, r.slug, r.title));
 	}
 
 	function pickHeading(h: Heading) {

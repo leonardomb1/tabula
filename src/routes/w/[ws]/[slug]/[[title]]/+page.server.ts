@@ -1,7 +1,8 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { renderMarkdown } from '$lib/markdown';
 import { getDoc, findBacklinks } from '$lib/server/docsIndex';
 import { getForUser, getRole, listForUser } from '$lib/server/workspaces';
+import { slugifyTitle } from '$lib/ids';
 import {
 	getStyleForTemplate,
 	parseReferences,
@@ -11,10 +12,12 @@ import {
 } from '$lib/server/pdf/citations';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals, cookies }) => {
+export const load: PageServerLoad = async ({ params, locals, cookies, url }) => {
 	const { ws: wsId, slug } = params;
+	const titleSeg = params.title ?? '';
 	if (!/^[a-zA-Z0-9_-]+$/.test(slug)) error(400, 'Slug inválido');
 	if (!/^[a-z0-9-]+$/.test(wsId)) error(400, 'Workspace inválido');
+	if (titleSeg && !/^[a-z0-9-]+$/.test(titleSeg)) error(400, 'Título inválido');
 
 	// Access check — 404 (not 403) so we don't leak ws ids to non-members.
 	const user = locals.user;
@@ -38,6 +41,14 @@ export const load: PageServerLoad = async ({ params, locals, cookies }) => {
 
 	const rendered = renderMarkdown(doc.source);
 	const { toc, title, frontmatter } = rendered;
+
+	// Canonicalize the URL. The title segment is decorative — the id is the
+	// resolver — but a stale or missing segment gets a 301 so shared links
+	// settle on one form and future renames don't leave ghosts.
+	const canonicalTitle = slugifyTitle(title);
+	if (canonicalTitle && titleSeg !== canonicalTitle) {
+		redirect(301, `/w/${wsId}/${slug}/${canonicalTitle}${url.search}`);
+	}
 	let html = rendered.html;
 
 	// Reading stats — computed off the raw source, not the rendered HTML,

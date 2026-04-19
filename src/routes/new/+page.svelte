@@ -7,6 +7,7 @@
 	import { aiDock, toggleAi } from '$lib/aiDock.svelte';
 	import type { PageData } from './$types';
 	import type { RenderResult } from '$lib/markdown';
+	import { docPath } from '$lib/ids';
 
 	let { data }: { data: PageData } = $props();
 
@@ -203,7 +204,9 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 			// On create, navigate to the viewer at the server-minted slug.
 			// On edit, stay on the page — same slug, user keeps writing.
 			if (!editingExisting) {
-				goto(`/w/${wsId}/${result.slug}`);
+				const renderMarkdown = await getRenderMarkdown();
+				const { title } = renderMarkdown(content);
+				goto(docPath(wsId, result.slug, title));
 			}
 		} else {
 			const data = await res.json();
@@ -554,7 +557,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 			</button>
 			{#if editingExisting}
 				<a
-					href="/w/{wsId}/{originalSlug}"
+					href={docPath(wsId, originalSlug, previewTitle)}
 					class="view-btn"
 					title="Ver documento publicado"
 				>↗ Ver</a>

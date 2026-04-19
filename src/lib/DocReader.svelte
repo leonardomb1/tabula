@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { docPath } from './ids';
 
 	type TocEntry = { level: number; id: string; text: string };
 	type CitedRef = { key: string; label: string; title: string };
@@ -250,7 +251,7 @@
 					<p class="rail-head">Referenciado por</p>
 					<ul class="backlinks-list">
 						{#each backlinks as bl}
-							<li><a href="/w/{wsId}/{bl.slug}">{bl.title}</a></li>
+							<li><a href={docPath(wsId, bl.slug, bl.title)}>{bl.title}</a></li>
 						{/each}
 					</ul>
 				</section>

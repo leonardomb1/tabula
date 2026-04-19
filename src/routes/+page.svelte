@@ -7,6 +7,7 @@
 	import { toggleAi, aiDock } from '$lib/aiDock.svelte';
 	import { page } from '$app/stores';
 	import { ROLES, isAtLeast } from '$lib/roles';
+	import { docPath } from '$lib/ids';
 
 	let { data }: { data: PageData } = $props();
 
@@ -184,7 +185,7 @@
 						<ul class="doc-list">
 							{#each sorted as doc}
 								<li class="doc-item">
-									<a href="/w/{data.currentWs.id}/{doc.slug}" class="doc-link">
+									<a href={docPath(data.currentWs.id, doc.slug, doc.title)} class="doc-link">
 										<h3 class="doc-title">{doc.title}</h3>
 										{#if doc.description}
 											<p class="doc-excerpt">{doc.description}</p>
