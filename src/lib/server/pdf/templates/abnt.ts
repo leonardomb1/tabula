@@ -334,13 +334,25 @@ body { margin: 0; padding: 0; }
        fonte 14.
    ═══════════════════════════════════════════════════════════════════ */
 .abnt-capa {
+	/* Pin cap-foot to the page content bottom via @bottom-* margin boxes
+	   is unreliable in Chromium; instead pin it absolutely to the bottom
+	   of the capa container, and force the container to fill the page
+	   content area with explicit height + min-height (both because
+	   "break-after: page" can cause "height" alone to be ignored). */
+	position: relative;
 	height: calc(297mm - 3cm - 2cm);
+	min-height: calc(297mm - 3cm - 2cm);
 	display: flex;
 	flex-direction: column;
-	justify-content: space-between;
 	text-align: center;
 	break-after: page;
 	font-weight: 700;
+}
+.abnt-capa .cap-foot {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
 }
 
 .abnt-capa .cap-top {
@@ -359,12 +371,15 @@ body { margin: 0; padding: 0; }
 }
 
 .abnt-capa .cap-title {
-	align-self: center;
 	font-size: 16pt;
 	font-weight: 700;
 	line-height: 1.4;
 	max-width: 14cm;
-	margin: 0 auto;
+	/* In flex column, "margin: auto" on a single flex child centers it
+	   both axes within the remaining space — pushes cap-top to the top
+	   and centers the title between cap-top and the absolutely-pinned
+	   cap-foot. */
+	margin: auto;
 	text-wrap: balance;
 	/* "letras minúsculas" per manual — sentence/title case as typed,
 	   not forced uppercase. */
