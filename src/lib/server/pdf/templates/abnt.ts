@@ -351,6 +351,11 @@ body { margin: 0; padding: 0; }
 .abnt-capa .cap-top .cap-autor {
 	margin-top: 6em;
 }
+.abnt-capa .cap-autor > div,
+.abnt-rosto .ros-autor > div,
+.abnt-banca .ban-autor > div {
+	display: block;
+}
 
 .abnt-capa .cap-title {
 	align-self: center;
@@ -951,7 +956,9 @@ function resolveAutores(opts: AbntOptions, meta: RenderContext['meta']): string[
 	const src = opts.autor ?? meta.author;
 	if (!src) return [];
 	if (Array.isArray(src)) return src.map((s) => String(s).trim()).filter(Boolean);
-	return [String(src).trim()].filter(Boolean);
+	// Back-compat: older docs stored a single string with commas; split it so
+	// each author still gets its own line even without re-saving.
+	return String(src).split(/\s*,\s*/).map((s) => s.trim()).filter(Boolean);
 }
 
 function renderAutores(autores: string[]): string {
