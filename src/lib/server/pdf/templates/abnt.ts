@@ -335,8 +335,9 @@ body { margin: 0; padding: 0; }
    ═══════════════════════════════════════════════════════════════════ */
 .abnt-capa {
 	height: calc(297mm - 3cm - 2cm);
-	display: grid;
-	grid-template-rows: auto 1fr auto;
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
 	text-align: center;
 	break-after: page;
 	font-weight: 700;
@@ -782,6 +783,7 @@ body { margin: 0; padding: 0; }
 .abnt-body blockquote + p,
 .abnt-body pre + p,
 .abnt-body table + p,
+.abnt-body .table-wrap + p,
 .abnt-body figure + p,
 .abnt-body ul + p,
 .abnt-body ol + p { text-indent: 0; }
@@ -789,9 +791,13 @@ body { margin: 0; padding: 0; }
 /* Table / figure captions and "Fonte:" lines — NBR 14724 §5.8: caption
    above, source below, both centralizados. Markdown emits these as plain
    paragraphs adjacent to the table/figure, so we catch them by position:
-   any <p> immediately before or after a <table> or <figure>. */
+   any <p> immediately before or after a <table>/<figure>. Tables are
+   wrapped in <div.table-wrap> by the markdown post-processor, so we match
+   that too. */
 .abnt-body p:has(+ table),
+.abnt-body p:has(+ .table-wrap),
 .abnt-body table + p,
+.abnt-body .table-wrap + p,
 .abnt-body p:has(+ figure),
 .abnt-body figure + p {
 	text-align: center;
