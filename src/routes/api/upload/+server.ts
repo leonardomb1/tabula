@@ -1,7 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { putBinary } from '$lib/server/storage';
 import { attachmentsPrefix } from '$lib/server/docsIndex';
-import { DEFAULT_WS_ID } from '$lib/server/workspaces';
+import { DEFAULT_WS_ID, canWrite } from '$lib/server/workspaces';
 import type { RequestHandler } from './$types';
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -15,8 +15,12 @@ const ALLOWED_TYPES = new Set([
 	'application/zip',
 ]);
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async ({ request, url, locals }) => {
 	const wsId = url.searchParams.get('ws') ?? DEFAULT_WS_ID;
+
+	if (!locals.user) error(401, 'Autenticação obrigatória');
+	if (!(await canWrite(locals.user, wsId))) error(403, 'Sem permissão para enviar arquivos');
+
 	const formData = await request.formData();
 	const file = formData.get('file') as File | null;
 

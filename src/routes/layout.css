@@ -54,6 +54,7 @@
 	--rule-soft: oklch(0.93 0.008 80);
 	--code-bg: oklch(0.955 0.012 82);
 	--code-ink: oklch(0.28 0.02 80);
+	--code-surface: oklch(0.935 0.018 78);
 	--chip-bg: oklch(0.935 0.012 82);
 	--kbd-bg: #fff;
 	--kbd-border: oklch(0.88 0.01 80);
@@ -104,6 +105,7 @@
 	--rule-soft: oklch(0.22 0.008 260);
 	--code-bg: oklch(0.22 0.01 260);
 	--code-ink: oklch(0.82 0.08 30);
+	--code-surface: oklch(0.205 0.009 260);
 	--chip-bg: oklch(0.22 0.01 260);
 	--kbd-bg: oklch(0.2 0.008 260);
 	--kbd-border: oklch(0.3 0.008 260);
@@ -143,6 +145,7 @@
 		--rule-soft: oklch(0.22 0.008 260);
 		--code-bg: oklch(0.22 0.01 260);
 		--code-ink: oklch(0.82 0.08 30);
+		--code-surface: oklch(0.205 0.009 260);
 		--chip-bg: oklch(0.22 0.01 260);
 		--kbd-bg: oklch(0.2 0.008 260);
 		--kbd-border: oklch(0.3 0.008 260);
@@ -204,9 +207,172 @@ a { color: inherit; text-decoration: none; }
 /* @tailwindcss/typography injects literal `…` backticks around every
    inline <code> via pseudo-elements. Our markdown pipeline already
    strips them and our styling carries the monospace/color distinction,
-   so the plugin's opinion just duplicates the ticks visually. */
+   so the plugin's opinion just duplicates the ticks visually. The same
+   plugin also injects ```…``` pseudo-elements on <pre>, which show up
+   as an empty band at the top of every code block — also killed here. */
 .prose :not(pre) > code::before,
-.prose :not(pre) > code::after { content: none; }
+.prose :not(pre) > code::after,
+.prose pre::before,
+.prose pre::after { content: none; }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Highlight.js token palette — paper-native. Tokens route through CSS
+   variables so each theme (Papel/Tinta) provides its own hue family
+   without duplicating the .hljs-* selectors. Sepia-forward in Papel,
+   softened One Dark in Tinta. All .hljs elements are explicitly
+   background-transparent so no rogue span paints a band over the pre.
+   ────────────────────────────────────────────────────────────────── */
+:root,
+:root[data-theme='light'] {
+	--hl-keyword:  oklch(0.44 0.11 320);  /* muted plum */
+	--hl-string:   oklch(0.48 0.09 135);  /* olive */
+	--hl-number:   oklch(0.5  0.1  70);   /* warm amber */
+	--hl-comment:  oklch(0.58 0.015 80);  /* sepia gray */
+	--hl-title:    oklch(0.45 0.1  245);  /* slate blue */
+	--hl-type:     oklch(0.5  0.1  80);   /* ochre */
+	--hl-variable: oklch(0.5  0.12 25);   /* terracotta */
+	--hl-meta:     oklch(0.52 0.09 195);  /* muted teal */
+}
+
+:root[data-theme='dark'] {
+	--hl-keyword:  oklch(0.76 0.12 320);  /* softened purple */
+	--hl-string:   oklch(0.82 0.12 135);  /* softened sage */
+	--hl-number:   oklch(0.78 0.11 70);   /* warm amber */
+	--hl-comment:  oklch(0.52 0.015 80);  /* muted gray */
+	--hl-title:    oklch(0.78 0.11 245);  /* softened blue */
+	--hl-type:     oklch(0.84 0.1  90);   /* softer yellow */
+	--hl-variable: oklch(0.76 0.12 25);   /* softened rust */
+	--hl-meta:     oklch(0.78 0.09 195);  /* softened teal */
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme='light']):not([data-theme='dark']) {
+		--hl-keyword:  oklch(0.76 0.12 320);
+		--hl-string:   oklch(0.82 0.12 135);
+		--hl-number:   oklch(0.78 0.11 70);
+		--hl-comment:  oklch(0.52 0.015 80);
+		--hl-title:    oklch(0.78 0.11 245);
+		--hl-type:     oklch(0.84 0.1  90);
+		--hl-variable: oklch(0.76 0.12 25);
+		--hl-meta:     oklch(0.78 0.09 195);
+	}
+}
+
+.hljs, .hljs-subst { background: transparent; color: var(--ink); }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Code block chrome — subtle header with the language label and a
+   copy-to-clipboard button. Wrapped around each <pre> by the markdown
+   renderer. Click handling is delegated from +layout.svelte so it
+   covers dynamically-rendered content (AI dock answers, live preview).
+   ────────────────────────────────────────────────────────────────── */
+.code-block {
+	position: relative;
+	margin: 24px 0 28px;
+}
+
+.code-block > pre {
+	margin: 0 !important;
+}
+
+.code-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 10px 4px 14px;
+	background: var(--code-surface);
+	border: 1px solid var(--rule);
+	border-bottom: 0;
+	border-radius: 8px 8px 0 0;
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--ink-muted);
+	min-height: 26px;
+}
+
+.code-block[data-lang="plaintext"] .code-head {
+	/* Keep the copy button but hide the empty label row — pull copy
+	   into a small floating pill that appears on hover only. */
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	padding: 0;
+	background: transparent;
+	border: 0;
+	min-height: 0;
+	z-index: 1;
+	opacity: 0;
+	transition: opacity 0.15s;
+}
+
+.code-block[data-lang="plaintext"]:hover .code-head { opacity: 1; }
+.code-block[data-lang="plaintext"] > pre { border-radius: 8px !important; }
+
+.code-block:not([data-lang="plaintext"]) > pre {
+	border-top-left-radius: 0 !important;
+	border-top-right-radius: 0 !important;
+}
+
+.code-lang {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.code-copy {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 22px;
+	padding: 0;
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	color: var(--ink-muted);
+	cursor: pointer;
+	flex-shrink: 0;
+	transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.code-copy:hover {
+	color: var(--ink);
+	background: color-mix(in oklab, var(--ink) 6%, transparent);
+	border-color: var(--rule);
+}
+
+.code-copy .code-copy-ok { display: none; }
+.code-copy.is-copied { color: oklch(0.55 0.14 150); }
+.code-copy.is-copied .code-copy-ic { display: none; }
+.code-copy.is-copied .code-copy-ok { display: inline-block; }
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in        { color: var(--hl-keyword); }
+.hljs-string,
+.hljs-attr            { color: var(--hl-string); }
+.hljs-number,
+.hljs-literal         { color: var(--hl-number); }
+.hljs-comment,
+.hljs-quote           { color: var(--hl-comment); font-style: italic; }
+.hljs-title,
+.hljs-section,
+.hljs-title.function_ { color: var(--hl-title); }
+.hljs-type,
+.hljs-class,
+.hljs-params          { color: var(--hl-type); }
+.hljs-variable,
+.hljs-name,
+.hljs-tag             { color: var(--hl-variable); }
+.hljs-meta,
+.hljs-regexp,
+.hljs-symbol          { color: var(--hl-meta); }
+.hljs-doctag,
+.hljs-strong          { font-weight: 600; }
+.hljs-emphasis        { font-style: italic; }
 
 /* Thin warm scrollbars — the prototype uses these everywhere. */
 *::-webkit-scrollbar { width: 10px; height: 10px; }

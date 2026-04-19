@@ -12,7 +12,11 @@ renderer.code = function ({ text, lang }) {
 	if (lang === 'mermaid') return `<pre class="mermaid">${text}</pre>\n`;
 	const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
 	const highlighted = hljs.highlight(text, { language }).value;
-	return `<pre><code class="hljs language-${language}">${highlighted}</code></pre>`;
+	// Header is hidden for plaintext blocks (no language to show). The copy
+	// button is still rendered but only the action pill appears on hover.
+	const label = language === 'plaintext' ? '' : language;
+	const copyIcon = `<svg class="code-copy-ic" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5" y="5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 10V3a1 1 0 0 1 1-1h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><svg class="code-copy-ok" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+	return `<div class="code-block" data-lang="${language}"><div class="code-head"><span class="code-lang">${label}</span><button type="button" class="code-copy" aria-label="Copiar código">${copyIcon}</button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`;
 };
 
 renderer.heading = function ({ text, depth }) {

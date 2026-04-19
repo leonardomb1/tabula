@@ -11,9 +11,11 @@ export const load: PageServerLoad = async () => {
 		.filter((d) => d.frontmatter.public === true)
 		.map((d) => {
 			const tags = Array.isArray(d.frontmatter.tags) ? d.frontmatter.tags.map(String) : [];
-			return { slug: d.slug, title: d.title, mtime: d.mtime, tags };
+			const date = d.frontmatter.date ? new Date(d.frontmatter.date as unknown as Date) : null;
+			const description = typeof d.frontmatter.description === 'string' ? d.frontmatter.description : null;
+			return { slug: d.slug, title: d.title, mtime: d.mtime, date, tags, description };
 		})
-		.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+		.sort((a, b) => (b.date ?? b.mtime).getTime() - (a.date ?? a.mtime).getTime());
 
 	const allTags = [...new Set(docs.flatMap((d) => d.tags))].sort();
 

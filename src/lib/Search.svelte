@@ -1,226 +1,376 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import type { SearchResult } from '../routes/api/search/+server';
+	import { openAiWith } from './aiDock.svelte';
 
-	let { theme = 'light' }: { theme?: 'light' | 'dark' } = $props();
+	type Heading = { id: string; text: string; level: number };
 
+	let {
+		wsId,
+		wsName,
+		pageHeadings = []
+	}: {
+		wsId: string;
+		wsName?: string;
+		pageHeadings?: Heading[];
+	} = $props();
+
+	let open = $state(false);
 	let query = $state('');
 	let results = $state<SearchResult[]>([]);
 	let loading = $state(false);
-	let open = $state(false);
-	let activeIdx = $state(-1);
+	let activeIdx = $state(0);
 	let debounce: ReturnType<typeof setTimeout>;
-	let inputEl: HTMLInputElement;
-	let listEl = $state<HTMLUListElement | undefined>(undefined);
+	let inputEl = $state<HTMLInputElement | null>(null);
+	let resultsEl = $state<HTMLDivElement | null>(null);
 
-	async function search(q: string) {
-		if (q.length < 2) {
+	// In-page heading matches — filtered client-side from the doc's TOC.
+	const inPage = $derived.by<Heading[]>(() => {
+		const q = query.trim().toLowerCase();
+		if (!q) return pageHeadings.slice(0, 6);
+		return pageHeadings.filter((h) => h.text.toLowerCase().includes(q)).slice(0, 8);
+	});
+
+	// Flat list drives keyboard navigation across both groups.
+	type FlatItem =
+		| { kind: 'doc'; result: SearchResult }
+		| { kind: 'page'; heading: Heading };
+
+	const flat = $derived.by<FlatItem[]>(() => {
+		const list: FlatItem[] = [];
+		for (const r of results) list.push({ kind: 'doc', result: r });
+		for (const h of inPage) list.push({ kind: 'page', heading: h });
+		return list;
+	});
+
+	async function runSearch(q: string) {
+		if (q.trim().length < 2) {
 			results = [];
-			open = false;
+			loading = false;
+			activeIdx = 0;
 			return;
 		}
 		loading = true;
-		const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-		results = await res.json();
+		const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&ws=${encodeURIComponent(wsId)}`);
+		results = res.ok ? await res.json() : [];
 		loading = false;
-		open = results.length > 0;
-		activeIdx = -1;
+		activeIdx = 0;
 	}
 
 	function onInput() {
 		clearTimeout(debounce);
-		debounce = setTimeout(() => search(query), 200);
+		debounce = setTimeout(() => runSearch(query), 180);
 	}
 
-	function onKeydown(e: KeyboardEvent) {
-		if (!open) return;
-		if (e.key === 'ArrowDown') {
+	function openPalette() {
+		open = true;
+		setTimeout(() => inputEl?.focus(), 30);
+	}
+
+	function closePalette() {
+		open = false;
+		// Keep query between openings — feels nicer when re-opening after a quick close.
+	}
+
+	function pickDoc(r: SearchResult) {
+		closePalette();
+		goto(`/w/${r.wsId}/${r.slug}`);
+	}
+
+	function pickHeading(h: Heading) {
+		closePalette();
+		const el = document.getElementById(h.id);
+		if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		else location.hash = h.id;
+	}
+
+	function pickActive() {
+		const item = flat[activeIdx];
+		if (!item) return;
+		if (item.kind === 'doc') pickDoc(item.result);
+		else pickHeading(item.heading);
+	}
+
+	function handoffToAi() {
+		const q = query.trim();
+		if (!q) return;
+		closePalette();
+		openAiWith(q);
+	}
+
+	function onPaletteKey(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
 			e.preventDefault();
-			activeIdx = Math.min(activeIdx + 1, results.length - 1);
+			closePalette();
+		} else if (e.key === 'ArrowDown') {
+			e.preventDefault();
+			activeIdx = Math.min(activeIdx + 1, Math.max(flat.length - 1, 0));
 			scrollActive();
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			activeIdx = Math.max(activeIdx - 1, -1);
+			activeIdx = Math.max(activeIdx - 1, 0);
 			scrollActive();
-		} else if (e.key === 'Enter' && activeIdx >= 0) {
+		} else if (e.key === 'Enter') {
 			e.preventDefault();
-			navigate(results[activeIdx].slug);
-		} else if (e.key === 'Escape') {
-			close();
+			pickActive();
+		} else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'j') {
+			// stopPropagation prevents AIDock's window-level ⌘J toggle from
+			// firing in the same tick and closing the dock we just opened.
+			e.preventDefault();
+			e.stopPropagation();
+			handoffToAi();
 		}
 	}
 
 	function scrollActive() {
-		if (!listEl) return;
-		const item = listEl.children[activeIdx] as HTMLElement | undefined;
-		item?.scrollIntoView({ block: 'nearest' });
+		if (!resultsEl) return;
+		const node = resultsEl.querySelector<HTMLElement>(`[data-flat-idx="${activeIdx}"]`);
+		node?.scrollIntoView({ block: 'nearest' });
 	}
 
-	function navigate(slug: string) {
-		query = '';
-		results = [];
-		open = false;
-		goto(`/${slug}`);
+	function onBackdropMousedown(e: MouseEvent) {
+		if (e.target === e.currentTarget) closePalette();
 	}
 
-	function close() {
-		open = false;
-		activeIdx = -1;
-	}
-
-	function onFocus() {
-		if (results.length > 0) open = true;
-	}
-
-	function onBlur(e: FocusEvent) {
-		// delay so click on result fires first
-		setTimeout(() => {
-			if (!listEl?.contains(document.activeElement)) close();
-		}, 150);
-	}
-
-	// ⌘K / Ctrl+K global shortcut
+	// ⌘K opens the palette from anywhere on the page.
 	function onGlobalKey(e: KeyboardEvent) {
-		if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
 			e.preventDefault();
-			inputEl?.focus();
-			inputEl?.select();
+			if (open) closePalette();
+			else openPalette();
 		}
 	}
+
+	onMount(() => {
+		window.addEventListener('keydown', onGlobalKey);
+		return () => window.removeEventListener('keydown', onGlobalKey);
+	});
 </script>
 
-<svelte:window onkeydown={onGlobalKey} />
+<button
+	type="button"
+	class="search-trigger"
+	onclick={openPalette}
+	aria-haspopup="dialog"
+	aria-expanded={open}
+	aria-label="Buscar"
+>
+	<svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+		<circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.6" />
+		<path d="M13 13l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+	</svg>
+	<span class="label">Buscar ou ir para…</span>
+	<kbd>⌘K</kbd>
+</button>
 
-<div class="search-wrap" class:dark={theme === 'dark'}>
-	<div class="search-box" class:focused={open}>
-		<svg class="search-icon" viewBox="0 0 20 20" fill="none">
-			<circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5"/>
-			<path d="M13 13l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-		</svg>
-		<input
-			bind:this={inputEl}
-			bind:value={query}
-			oninput={onInput}
-			onkeydown={onKeydown}
-			onfocus={onFocus}
-			onblur={onBlur}
-			type="search"
-			placeholder="Buscar…"
-			autocomplete="off"
-			spellcheck="false"
-			class="search-input"
-			aria-label="Buscar documentos"
-			aria-haspopup="listbox"
-		/>
-		{#if loading}
-			<span class="spinner" aria-hidden="true"></span>
-		{:else if query}
-			<kbd class="shortcut-hint">esc</kbd>
-		{:else}
-			<kbd class="shortcut-hint">⌘K</kbd>
-		{/if}
-	</div>
+{#if open}
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="palette-backdrop" onmousedown={onBackdropMousedown}>
+		<div class="palette" role="dialog" aria-label="Buscar">
+			<div class="palette-search">
+				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+					<circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5" />
+					<path d="M13 13l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+				</svg>
+				<input
+					bind:this={inputEl}
+					bind:value={query}
+					oninput={onInput}
+					onkeydown={onPaletteKey}
+					type="search"
+					placeholder={wsName ? `Buscar em ${wsName}, ir para…` : 'Buscar, ir para…'}
+					autocomplete="off"
+					spellcheck="false"
+				/>
+				{#if loading}
+					<span class="spinner" aria-hidden="true"></span>
+				{/if}
+				<span class="esc">esc</span>
+			</div>
 
-	{#if open}
-		<ul
-			bind:this={listEl}
-			class="results-dropdown"
-			role="listbox"
-		>
-			{#each results as result, i}
-				<li
-					role="option"
-					aria-selected={i === activeIdx}
-					class="result-item"
-					class:active={i === activeIdx}
-					onmousedown={() => navigate(result.slug)}
-					onmouseenter={() => (activeIdx = i)}
+			<div class="palette-results" bind:this={resultsEl}>
+				{#if results.length > 0}
+					<div class="palette-group">Documentos</div>
+					{#each results as r, i}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class="palette-item"
+							class:is-selected={i === activeIdx}
+							data-flat-idx={i}
+							onmousedown={(e) => { e.preventDefault(); pickDoc(r); }}
+							onmouseenter={() => (activeIdx = i)}
+						>
+							<span class="pi-kind">doc</span>
+							<span class="pi-title">{r.title}</span>
+							<span class="pi-sub">{r.slug}</span>
+						</div>
+					{/each}
+				{/if}
+
+				{#if inPage.length > 0}
+					<div class="palette-group">Nesta página</div>
+					{#each inPage as h, j}
+						{@const flatIdx = results.length + j}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<div
+							class="palette-item"
+							class:is-selected={flatIdx === activeIdx}
+							data-flat-idx={flatIdx}
+							onmousedown={(e) => { e.preventDefault(); pickHeading(h); }}
+							onmouseenter={() => (activeIdx = flatIdx)}
+						>
+							<span class="pi-kind">§</span>
+							<span class="pi-title">{h.text}</span>
+							<span class="pi-sub">seção</span>
+						</div>
+					{/each}
+				{/if}
+
+				{#if !loading && query.trim().length >= 2 && results.length === 0 && inPage.length === 0}
+					<div class="palette-empty">Nenhum resultado para <em>{query}</em>.</div>
+				{:else if !query && inPage.length === 0 && results.length === 0}
+					<div class="palette-empty">Comece a digitar para buscar no workspace.</div>
+				{/if}
+			</div>
+
+			<div class="palette-foot">
+				<span><kbd>↑↓</kbd> navegar</span>
+				<span><kbd>⏎</kbd> abrir</span>
+				<span class="spacer"></span>
+				<button
+					type="button"
+					class="handoff"
+					onmousedown={(e) => { e.preventDefault(); handoffToAi(); }}
+					disabled={!query.trim()}
+					title="Perguntar à assistente com esta consulta"
 				>
-					<div class="result-header">
-						<span class="result-title">{result.title}</span>
-						<span class="result-slug">/{result.slug}</span>
-					</div>
-					{#if result.matchIn === 'content'}
-						<div class="result-excerpt">{@html result.excerpt}</div>
-					{/if}
-				</li>
-			{/each}
-		</ul>
-	{/if}
-</div>
+					Perguntar à assistente <kbd>⌘J</kbd>
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
-	.search-wrap {
-		position: relative;
+	.search-trigger {
+		display: inline-flex;
+		align-items: center;
+		gap: 9px;
+		height: 30px;
+		padding: 0 10px;
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		border-radius: 999px;
+		color: var(--ink-muted);
+		font-size: 13px;
 		font-family: var(--font-sans);
+		cursor: pointer;
+		transition: border-color 0.15s, background 0.15s, color 0.15s;
+		min-width: 0;
 	}
 
-	.search-box {
+	.search-trigger:hover {
+		border-color: var(--accent);
+		color: var(--ink);
+		background: var(--bg);
+	}
+
+	.search-trigger svg {
+		width: 13px;
+		height: 13px;
+		flex-shrink: 0;
+	}
+
+	.search-trigger .label {
+		letter-spacing: 0.01em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.search-trigger kbd {
+		font-family: var(--font-sans);
+		font-size: 10.5px;
+		padding: 1px 6px;
+		background: var(--bg-deep);
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		color: var(--ink-soft);
+		margin-left: auto;
+		flex-shrink: 0;
+	}
+
+	.palette-backdrop {
+		position: fixed;
+		inset: 0;
+		background: color-mix(in oklab, var(--ink) 22%, transparent);
+		backdrop-filter: blur(3px);
+		-webkit-backdrop-filter: blur(3px);
+		z-index: 200;
+		display: flex;
+		align-items: flex-start;
+		justify-content: center;
+		padding-top: 14vh;
+		animation: fadeIn 0.15s ease;
+	}
+
+	@keyframes fadeIn {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+
+	.palette {
+		width: min(620px, 92vw);
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		border-radius: 10px;
+		box-shadow: 0 30px 80px -24px rgba(0, 0, 0, 0.4);
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		max-height: 72vh;
+		animation: palettePop 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+	}
+
+	@keyframes palettePop {
+		from { transform: translateY(-8px) scale(0.985); opacity: 0; }
+		to { transform: translateY(0) scale(1); opacity: 1; }
+	}
+
+	.palette-search {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		background: var(--surface);
-		border: 1px solid var(--rule);
-		border-radius: 8px;
-		padding: 0 12px;
-		transition: border-color 0.15s, background 0.15s;
-		min-width: 220px;
-	}
-
-	.search-box.focused {
-		border-color: var(--accent);
-		background: #fff;
-	}
-
-	.dark .search-box {
-		background: #222;
-		border-color: #333;
-	}
-
-	.dark .search-box.focused {
-		border-color: #555;
-	}
-
-	.search-icon {
-		width: 14px;
-		height: 14px;
+		padding: 14px 16px;
+		border-bottom: 1px solid var(--rule);
 		color: var(--ink-muted);
-		flex-shrink: 0;
 	}
 
-	.search-input {
+	.palette-search input {
 		flex: 1;
-		background: none;
-		border: none;
-		outline: none;
-		font-size: 14px;
-		padding: 8px 0;
+		border: 0;
+		outline: 0;
+		background: transparent;
+		font-size: 16px;
+		font-family: var(--font-sans);
 		color: var(--ink);
 		min-width: 0;
-		font-family: var(--font-sans);
 	}
 
-	.dark .search-input { color: #d4d4d4; }
-	.search-input::placeholder { color: var(--ink-muted); }
-	.search-input::-webkit-search-cancel-button { display: none; }
+	.palette-search input::placeholder { color: var(--ink-muted); }
+	.palette-search input::-webkit-search-cancel-button { display: none; }
 
-	.shortcut-hint {
-		font-family: var(--font-sans);
-		font-size: 11px;
+	.palette-search .esc {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
 		padding: 2px 6px;
-		background: var(--kbd-bg);
-		border: 1px solid var(--kbd-border);
-		border-radius: 4px;
-		color: var(--ink-soft);
-		flex-shrink: 0;
-		pointer-events: none;
-		user-select: none;
-	}
-
-	.dark .shortcut-hint {
-		background: #2a2a2a;
-		border-color: #444;
-		color: #666;
+		border: 1px solid var(--rule);
+		border-radius: 3px;
+		color: var(--ink-muted);
 	}
 
 	.spinner {
@@ -235,101 +385,140 @@
 
 	@keyframes spin { to { transform: rotate(360deg); } }
 
-	.results-dropdown {
-		position: absolute;
-		top: calc(100% + 6px);
-		left: 0;
-		right: 0;
-		min-width: 340px;
-		background: var(--surface);
-		border: 1px solid var(--rule);
-		border-radius: 10px;
-		box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.2);
-		list-style: none;
-		margin: 0;
-		padding: 6px;
-		z-index: 100;
-		max-height: 420px;
+	.palette-results {
+		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
+		padding: 6px;
 	}
 
-	.dark .results-dropdown {
-		background: #1e1e1e;
-		border-color: #333;
+	.palette-group {
+		padding: 8px 12px 4px;
+		font-size: 10.5px;
+		font-weight: 600;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--ink-muted);
+		font-family: var(--font-sans);
 	}
 
-	.result-item {
-		padding: 8px 10px;
+	.palette-item {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 12px;
 		border-radius: 6px;
 		cursor: pointer;
-		transition: background 0.08s;
+		font-family: var(--font-sans);
 	}
 
-	.result-item.active,
-	.result-item:hover {
+	.palette-item.is-selected { background: var(--accent-soft); }
+
+	.palette-item .pi-kind {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		color: var(--ink-muted);
+		padding: 1px 5px;
+		border: 1px solid var(--rule);
+		border-radius: 3px;
+		letter-spacing: 0.04em;
+		flex-shrink: 0;
+	}
+
+	.palette-item .pi-title {
+		font-family: var(--font-serif-display);
+		font-size: 14px;
+		font-weight: 500;
+		color: var(--ink);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		min-width: 0;
+	}
+
+	.palette-item.is-selected .pi-title { color: var(--accent-ink); }
+
+	.palette-item .pi-sub {
+		font-family: var(--font-mono);
+		font-size: 11px;
+		color: var(--ink-muted);
+		margin-left: auto;
+		flex-shrink: 0;
+	}
+
+	.palette-empty {
+		padding: 24px 16px;
+		text-align: center;
+		font-family: var(--font-serif-body);
+		font-style: italic;
+		color: var(--ink-muted);
+		font-size: 13.5px;
+	}
+
+	.palette-empty em {
+		color: var(--ink);
+		font-style: normal;
+		font-weight: 500;
+	}
+
+	.palette-foot {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 12px;
+		border-top: 1px solid var(--rule);
+		background: var(--bg-deep);
+		font-family: var(--font-sans);
+		font-size: 11px;
+		color: var(--ink-muted);
+	}
+
+	.palette-foot .spacer { flex: 1; }
+
+	.palette-foot kbd {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
+		padding: 1px 5px;
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		border-radius: 3px;
+		color: var(--ink-soft);
+		margin: 0 2px;
+	}
+
+	.handoff {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 24px;
+		padding: 0 10px;
+		border: 1px solid var(--rule);
+		background: var(--surface);
+		color: var(--ink-soft);
+		border-radius: 999px;
+		font-family: var(--font-sans);
+		font-size: 11.5px;
+		cursor: pointer;
+		transition: border-color 0.15s, color 0.15s, background 0.15s;
+	}
+
+	.handoff:hover:not(:disabled) {
+		border-color: var(--accent);
+		color: var(--accent-ink);
 		background: var(--accent-soft);
 	}
 
-	.dark .result-item.active,
-	.dark .result-item:hover {
-		background: #2a2a2a;
-	}
-
-	.result-header {
-		display: flex;
-		align-items: baseline;
-		gap: 8px;
-	}
-
-	.result-title {
-		font-size: 13.5px;
-		font-weight: 500;
-		color: var(--ink);
-	}
-
-	.result-item.active .result-title,
-	.result-item:hover .result-title { color: var(--accent-ink); }
-
-	.dark .result-title { color: #e0e0e0; }
-
-	.result-slug {
-		font-size: 11.5px;
-		color: var(--ink-muted);
-		font-family: var(--font-mono);
-	}
-
-	.result-excerpt {
-		font-size: 12px;
-		color: var(--ink-muted);
-		margin-top: 3px;
-		line-height: 1.5;
-		overflow: hidden;
-		display: -webkit-box;
-		line-clamp: 2;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-	}
-
-	.dark .result-excerpt { color: #888; }
-
-	:global(.result-excerpt mark) {
-		background: color-mix(in oklab, var(--accent) 30%, transparent);
-		color: inherit;
-		border-radius: 2px;
-		padding: 0 1px;
-	}
-
-	.dark :global(.result-excerpt mark) {
-		background: #854d0e;
-		color: #fef9c3;
+	.handoff:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	@media (max-width: 640px) {
-		.search-box { min-width: 0; }
-		.results-dropdown {
-			min-width: 0;
-			max-height: 60vh;
+		.search-trigger .label {
+			font-size: 12px;
 		}
-		.shortcut-hint { display: none; }
+		.search-trigger kbd { display: none; }
+		.palette-backdrop { padding-top: 8vh; }
+		.palette-item .pi-sub { display: none; }
 	}
 </style>

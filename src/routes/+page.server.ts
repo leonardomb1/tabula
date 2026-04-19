@@ -5,18 +5,18 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals, cookies }) => {
 	// Build the visible workspace list. Unauthenticated visitors see only the
 	// default team (mostly a defensive code path — / is auth-gated).
-	const username = locals.user?.username;
-	const workspaces: Workspace[] = username
-		? await listForUser(username)
+	const user = locals.user;
+	const workspaces: Workspace[] = user
+		? await listForUser(user)
 		: [{ id: DEFAULT_WS_ID, name: 'Geral', kind: 'team' }];
 
 	// Resolve current workspace: cookie first, then Personal default for the
 	// logged-in user, then the default team.
 	const cookieWs = cookies.get('docs_ws');
 	let current: Workspace | null = null;
-	if (cookieWs && username) current = await getForUser(username, cookieWs);
-	if (!current && username) {
-		current = workspaces.find((w) => w.id === `${PERSONAL_PREFIX}${username}`) ?? null;
+	if (cookieWs && user) current = await getForUser(user, cookieWs);
+	if (!current && user) {
+		current = workspaces.find((w) => w.id === `${PERSONAL_PREFIX}${user.username}`) ?? null;
 	}
 	if (!current) current = workspaces[0];
 

@@ -6,8 +6,13 @@
 	import { openWorkspaceModal, workspaceModal } from '$lib/workspaceModal.svelte';
 	import { toggleAi, aiDock } from '$lib/aiDock.svelte';
 	import { page } from '$app/stores';
+	import { ROLES, isAtLeast } from '$lib/roles';
 
 	let { data }: { data: PageData } = $props();
+
+	// `currentRole` is merged in from +layout.server.ts — viewers hide
+	// write affordances (+ Novo, empty-state CTA).
+	const canWrite = $derived(isAtLeast(data.currentRole, ROLES.EDITOR));
 
 	const initTag = $page.url.searchParams.get('tag');
 	let selectedTags = $state<Set<string>>(initTag ? new Set([initTag]) : new Set());
@@ -71,7 +76,7 @@
 			</button>
 		</div>
 
-		<Search />
+		<Search wsId={data.currentWs.id} wsName={data.currentWs.name} />
 
 		<div class="actions">
 			<button
@@ -87,7 +92,9 @@
 					<path d="M5.2 7.2h.01M8 7.2h.01M10.8 7.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
 				</svg>
 			</button>
-			<a href="/new?ws={data.currentWs.id}" class="action-btn primary">+ Novo</a>
+			{#if canWrite}
+				<a href="/new?ws={data.currentWs.id}" class="action-btn primary">+ Novo</a>
+			{/if}
 			<UserMenu />
 		</div>
 	</header>
@@ -97,7 +104,11 @@
 			<div class="empty-state">
 				<h1 class="empty-title">{data.currentWs.name}</h1>
 				<p class="empty-text">Nenhum documento ainda.</p>
-				<a href="/new?ws={data.currentWs.id}" class="empty-cta">Criar o primeiro documento →</a>
+				{#if canWrite}
+					<a href="/new?ws={data.currentWs.id}" class="empty-cta">Criar o primeiro documento →</a>
+				{:else}
+					<p class="empty-text" style="font-style: italic;">Você tem acesso somente-leitura a este workspace.</p>
+				{/if}
 			</div>
 		{:else}
 			<section class="index-header">
@@ -376,10 +387,11 @@
 		border-color: transparent;
 	}
 
-	:global(.top-bar .search-wrap) {
+	:global(.top-bar > .search-trigger) {
 		justify-self: center;
+		min-width: 240px;
+		max-width: 420px;
 		width: 100%;
-		max-width: 520px;
 	}
 
 	/* ══════════════════════════════════════
@@ -388,11 +400,11 @@
 	.index-main {
 		max-width: 1080px;
 		margin: 0 auto;
-		padding: 56px 28px 96px;
+		padding: 24px 28px 96px;
 	}
 
 	.index-header {
-		margin-bottom: 48px;
+		margin-bottom: 28px;
 		max-width: 780px;
 	}
 
@@ -505,8 +517,11 @@
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		color: var(--ink-muted);
-		margin: 0 0 10px;
+		margin: 0 0 6px;
 		padding-left: 10px;
+		display: flex;
+		align-items: center;
+		min-height: 28px;
 	}
 
 	.tag-list {
@@ -781,7 +796,10 @@
 		.top-bar { grid-template-columns: auto minmax(0, 1fr); }
 		.brand-slot { min-width: 0; flex-shrink: 1; }
 		.brand-slot :global(.brand-text) { display: none; }
-		.brand-slot .ws-pill .name { max-width: 6em; overflow: hidden; text-overflow: ellipsis; }
+		/* Collapse the pill to just the badge + chevron on mobile — the name
+		   is redundant with the masthead below and eats search width. */
+		.brand-slot .ws-pill .name { display: none; }
+		.brand-slot .ws-pill { padding: 3px 8px 3px 3px; }
 		.brand-sep { display: none; }
 
 		.actions {
@@ -796,6 +814,11 @@
 			gap: 4px;
 			z-index: 40;
 			box-shadow: 0 -12px 24px -16px rgba(0, 0, 0, 0.12);
+			/* Force a compositing layer — without it the fixed bar gets
+			   dragged along with scroll on mobile (Chromium "fixed inside
+			   sticky" quirk). */
+			transform: translateZ(0);
+			will-change: transform;
 		}
 
 		.action-btn.primary {

@@ -51,6 +51,14 @@
 				localStorage.setItem('tabula-theme', choice);
 				document.documentElement.dataset.theme = choice;
 			}
+			// Mirror to a cookie so the server can render the correct
+			// assets (theme-aware brand logo) without a client-side swap.
+			// 1 year; lax + path=/ so it's sent on every in-app navigation.
+			if (choice === 'auto') {
+				document.cookie = 'tabula-theme=; path=/; max-age=0; samesite=lax';
+			} else {
+				document.cookie = `tabula-theme=${choice}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+			}
 		} catch {
 			/* ignore */
 		}
@@ -106,14 +114,14 @@
 				</div>
 
 				{#if currentWs}
-					<div class="dropdown-ws" aria-label="Workspace atual">
-						<span class="dropdown-ws-label">workspace</span>
-						<span class="dropdown-ws-name">{currentWs.name}</span>
+					<div class="section">
+						<p class="section-eyebrow">Workspace atual</p>
+						<p class="ws-name">{currentWs.name}</p>
 					</div>
 				{/if}
 
-				<div class="theme-row" role="radiogroup" aria-label="Tema">
-					<span class="theme-label">Tema</span>
+				<div class="section" role="radiogroup" aria-label="Tema">
+					<p class="section-eyebrow">Tema</p>
 					<div class="theme-seg">
 						<button
 							type="button"
@@ -139,8 +147,24 @@
 					</div>
 				</div>
 
+				<a href="/settings" class="row-link" role="menuitem" onclick={() => (open = false)}>
+					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.4"/>
+						<path d="M13 8a5 5 0 0 0-.25-1.6l1.3-1-1.5-2.6-1.55.58A5 5 0 0 0 9.6 2.65L9.4 1h-2.8l-.2 1.65A5 5 0 0 0 4 3.38l-1.55-.58-1.5 2.6 1.3 1A5 5 0 0 0 2 8c0 .56.09 1.1.25 1.6l-1.3 1 1.5 2.6 1.55-.58A5 5 0 0 0 6.4 13.35L6.6 15h2.8l.2-1.65A5 5 0 0 0 12 12.62l1.55.58 1.5-2.6-1.3-1A5 5 0 0 0 14 8" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+					</svg>
+					<span>Configurações</span>
+					<svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</a>
+
 				<form method="POST" action="/logout" use:enhance={onLogout}>
-					<button type="submit" class="logout" role="menuitem">Sair</button>
+					<button type="submit" class="row-logout" role="menuitem">
+						<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+							<path d="M10 11l3-3-3-3M13 8H6M8 2H3v12h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+						<span>Sair</span>
+					</button>
 				</form>
 			</div>
 		{/if}
@@ -208,100 +232,96 @@
 		text-overflow: ellipsis;
 	}
 
+	/* Dropdown — shape, tokens, and motion now match WorkspaceModal so
+	   the two feel like siblings: same 12px radii, same surface layering,
+	   same eyebrow/serif typography vocabulary. Kept as a dropdown (not
+	   a centered modal) because the actions here are all one-tap and a
+	   centered modal would be heavy for them. */
 	.dropdown {
 		position: absolute;
 		top: calc(100% + 0.5rem);
 		right: 0;
+		width: 280px;
 		background: var(--surface);
 		border: 1px solid var(--rule);
-		border-radius: 10px;
-		box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.2);
-		padding: 0.5rem;
-		min-width: 15rem;
+		border-radius: 12px;
+		box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.35);
+		overflow: hidden;
 		z-index: 200;
 	}
 
 	.dropdown-header {
 		display: flex;
 		align-items: center;
-		gap: 0.65rem;
-		padding: 0.45rem 0.4rem 0.7rem;
-		border-bottom: 1px solid var(--rule-soft);
-		margin-bottom: 0.4rem;
+		gap: 12px;
+		padding: 16px 16px 14px;
+		border-bottom: 1px solid var(--rule);
+		background: var(--bg);
 	}
 
 	.dropdown-avatar {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		width: 38px;
-		height: 38px;
-		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		border-radius: 8px;
 		background: var(--ink);
 		color: var(--bg);
+		font-family: var(--font-serif-display);
+		font-size: 16px;
 		font-weight: 600;
-		font-size: 0.95rem;
 		flex-shrink: 0;
 	}
 
 	.dropdown-id { display: flex; flex-direction: column; min-width: 0; }
 
 	.dropdown-name {
-		font-size: 0.88rem;
-		font-weight: 600;
+		font-family: var(--font-serif-display);
+		font-size: 16px;
+		font-weight: 500;
+		letter-spacing: -0.01em;
 		color: var(--ink);
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.dropdown-user {
-		font-size: 0.74rem;
+		font-size: 11.5px;
 		color: var(--ink-muted);
 		font-family: var(--font-mono);
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
+		margin-top: 2px;
 	}
 
-	.dropdown-ws {
+	/* Generic section — each block has a small uppercase eyebrow and
+	   soft bottom rule, matching the modal head vocabulary. */
+	.section {
 		display: flex;
 		flex-direction: column;
-		padding: 0.4rem 0.55rem 0.55rem;
-		margin: 0 -0.5rem 0.4rem;
+		gap: 8px;
+		padding: 12px 16px 14px;
 		border-bottom: 1px solid var(--rule-soft);
-		background: var(--bg-deep);
 	}
 
-	.dropdown-ws-label {
-		font-size: 0.65rem;
+	.section-eyebrow {
+		margin: 0;
+		font-size: 10.5px;
 		font-weight: 600;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		color: var(--ink-muted);
 	}
 
-	.dropdown-ws-name {
-		font-size: 0.85rem;
-		color: var(--ink);
+	.ws-name {
+		margin: 0;
+		font-family: var(--font-serif-display);
+		font-size: 14.5px;
 		font-weight: 500;
-		margin-top: 0.1rem;
-	}
-
-	/* Theme picker — segmented control. */
-	.theme-row {
-		display: flex;
-		flex-direction: column;
-		gap: 0.3rem;
-		padding: 0.3rem 0.4rem 0.55rem;
-		margin-bottom: 0.3rem;
-		border-bottom: 1px solid var(--rule-soft);
-	}
-
-	.theme-label {
-		font-size: 0.65rem;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--ink-muted);
+		color: var(--ink);
 	}
 
 	.theme-seg {
@@ -310,6 +330,7 @@
 		background: var(--bg-deep);
 		padding: 2px;
 		border-radius: 5px;
+		border: 1px solid var(--rule);
 	}
 
 	.theme-seg button {
@@ -321,6 +342,7 @@
 		font-size: 11.5px;
 		border-radius: 3px;
 		font-family: var(--font-sans);
+		cursor: pointer;
 	}
 
 	.theme-seg button:hover { color: var(--ink); }
@@ -332,30 +354,44 @@
 		font-weight: 500;
 	}
 
-	.dropdown form { margin: 0; }
-
-	.logout {
-		display: block;
+	/* Row links (Configurações, Sair) share a compact horizontal list
+	   pattern with an icon on the left. */
+	.row-link, .row-logout {
+		display: flex;
+		align-items: center;
+		gap: 10px;
 		width: 100%;
-		text-align: left;
-		background: none;
-		border: none;
-		padding: 0.55rem 0.5rem;
-		border-radius: 6px;
-		font-size: 0.85rem;
+		padding: 10px 16px;
+		background: transparent;
+		border: 0;
 		color: var(--ink-soft);
+		font-size: 13px;
+		font-family: var(--font-sans);
 		cursor: pointer;
-		transition: background 0.1s, color 0.1s;
-		font-family: inherit;
+		text-align: left;
+		transition: background 0.12s, color 0.12s;
 	}
 
-	.logout:hover { background: var(--bg-deep); color: var(--accent); }
+	.row-link span, .row-logout span { flex: 1; }
+
+	.row-link:hover, .row-logout:hover {
+		background: var(--bg-deep);
+		color: var(--ink);
+	}
+
+	.row-link .chev { color: var(--ink-muted); }
+	.row-link:hover .chev { color: var(--ink); }
+
+	.dropdown form { margin: 0; border-top: 1px solid var(--rule-soft); }
+
+	.row-logout:hover { color: oklch(0.55 0.18 25); }
+	:global([data-theme='dark']) .row-logout:hover { color: oklch(0.78 0.16 25); }
 
 	@media (max-width: 640px) {
 		.name-text { display: none; }
 		.trigger { padding: 0; border: none; background: none; }
 		.trigger:hover, .trigger[aria-expanded='true'] { background: none; border: none; }
 		.avatar { width: 32px; height: 32px; font-size: 0.78rem; }
-		.dropdown { min-width: 13rem; }
+		.dropdown { width: calc(100vw - 24px); max-width: 320px; }
 	}
 </style>

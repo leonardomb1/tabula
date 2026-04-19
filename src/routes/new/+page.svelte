@@ -33,6 +33,10 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	let previewTitle = $state('');
 	let saving = $state(false);
 	let lastSavedAt = $state<number | null>(null);
+	// True for ~1.4 s after a successful save — drives the "✓ Salvo!" flash
+	// and button pulse so the user sees a result beyond the text label change.
+	let savedFlash = $state(false);
+	let savedFlashTimer: ReturnType<typeof setTimeout> | null = null;
 	let error = $state('');
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let editingExisting = $state(false);
@@ -192,6 +196,9 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		if (res.ok) {
 			lastSavedAt = Date.now();
 			now = Date.now();
+			savedFlash = true;
+			if (savedFlashTimer) clearTimeout(savedFlashTimer);
+			savedFlashTimer = setTimeout(() => (savedFlash = false), 1400);
 			// When editing an existing doc, stay on the page and let the user
 			// keep working; for new docs, navigate to the viewer.
 			if (!editingExisting) {
@@ -518,8 +525,20 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 		<div class="spacer"></div>
 
-		<div class="autosave" class:is-saving={saving} class:is-saved={saveStatus.kind === 'saved'}>
-			<span class="autosave-label">{saveStatus.label}</span>
+		<div
+			class="autosave"
+			class:is-saving={saving}
+			class:is-saved={saveStatus.kind === 'saved'}
+			class:is-flash={savedFlash}
+		>
+			{#if savedFlash}
+				<svg class="autosave-tick" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+					<path d="M3 8.5l3.2 3.2L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>
+				<span class="autosave-label">Salvo</span>
+			{:else}
+				<span class="autosave-label">{saveStatus.label}</span>
+			{/if}
 		</div>
 
 		<div class="header-actions">
@@ -555,8 +574,15 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 					aria-expanded={editorMenuOpen}
 				>⋯</button>
 			{/if}
-			<button class="save-btn" onclick={save} disabled={saving}>
-				{saving ? 'Salvando…' : 'Salvar'}
+			<button class="save-btn" class:is-flash={savedFlash} onclick={save} disabled={saving}>
+				{#if savedFlash}
+					<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<path d="M3 8.5l3.2 3.2L13 4.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+					Salvo
+				{:else}
+					{saving ? 'Salvando…' : 'Salvar'}
+				{/if}
 			</button>
 		</div>
 		<UserMenu />
@@ -751,6 +777,29 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		font-size: 11.5px;
 		color: var(--ink-muted);
 		padding: 0 4px;
+		transition: color 0.18s;
+	}
+
+	.autosave.is-flash {
+		color: oklch(0.65 0.18 150);
+		animation: autosaveFlash 1.4s ease-out;
+	}
+
+	.autosave-tick {
+		flex-shrink: 0;
+		color: currentColor;
+		animation: tickPop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+	}
+
+	@keyframes autosaveFlash {
+		0% { transform: scale(1); }
+		18% { transform: scale(1.04); }
+		40% { transform: scale(1); }
+	}
+
+	@keyframes tickPop {
+		from { transform: scale(0.2); opacity: 0; }
+		to { transform: scale(1); opacity: 1; }
 	}
 
 	.header-actions {
@@ -835,6 +884,9 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	.menu-toggle:hover { background: var(--surface); border-color: var(--rule); }
 
 	.save-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
 		height: 30px;
 		padding: 0 16px;
 		background: var(--accent);
@@ -845,10 +897,22 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		font-weight: 500;
 		font-family: var(--font-sans);
 		cursor: pointer;
+		transition: background 0.18s, border-color 0.18s, transform 0.18s;
 	}
 
 	.save-btn:hover:not(:disabled) { filter: brightness(1.08); }
 	.save-btn:disabled { opacity: 0.65; cursor: not-allowed; }
+
+	.save-btn.is-flash {
+		background: oklch(0.62 0.18 150);
+		border-color: oklch(0.62 0.18 150);
+		animation: saveBtnPulse 0.6s ease-out;
+	}
+
+	@keyframes saveBtnPulse {
+		0% { box-shadow: 0 0 0 0 color-mix(in oklab, oklch(0.62 0.18 150) 55%, transparent); }
+		100% { box-shadow: 0 0 0 10px color-mix(in oklab, oklch(0.62 0.18 150) 0%, transparent); }
+	}
 
 	/* ══════════════════════════════════════
 	   Sub bar — stats
@@ -1060,12 +1124,13 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	}
 
 	:global(.pane-preview .prose pre) {
-		background: var(--bg-deep);
+		background: var(--code-surface);
 		border: 1px solid var(--rule);
-		border-radius: 6px;
+		border-radius: 8px;
 		padding: 14px 18px;
 		margin: 16px 0;
 		overflow-x: auto;
+		line-height: 1.6;
 	}
 
 	:global(.pane-preview .prose pre > code) {

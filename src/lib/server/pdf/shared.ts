@@ -145,13 +145,16 @@ async function readBrandingSvgDataUrl(file: string): Promise<string | null> {
 }
 
 /**
- * Logo HTML for PDF covers. The formal template has a dark header, so when
- * `content/branding/logo-negative.svg` exists (inverted / white variant) we
- * prefer it. Falls back to the main logo, then to text.
+ * Logo HTML for PDF covers. Templates with a dark header (argos) pass
+ * `negative: true` — we then prefer `logo_negative.svg` (the inverted
+ * white variant), fall through to the positive logo, then to text.
+ *
+ * Filename matches the web-side convention (src/lib/BrandLogo.svelte)
+ * so maintainers only upload one file to cover both surfaces.
  */
 export async function getBrandLogoHtml(name: string, color: string, negative = false): Promise<string> {
 	const url =
-		(await readBrandingSvgDataUrl(negative ? 'logo-negative.svg' : 'logo.svg')) ??
+		(await readBrandingSvgDataUrl(negative ? 'logo_negative.svg' : 'logo.svg')) ??
 		(negative ? await readBrandingSvgDataUrl('logo.svg') : null);
 
 	if (url) {

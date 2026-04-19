@@ -2,7 +2,7 @@ import { json, error } from '@sveltejs/kit';
 import matter from 'gray-matter';
 import { getText, putText, remove, list } from '$lib/server/storage';
 import { upsertDoc, renameDoc, slugToKey, historyPrefix } from '$lib/server/docsIndex';
-import { DEFAULT_WS_ID, canAccess } from '$lib/server/workspaces';
+import { DEFAULT_WS_ID, canWrite } from '$lib/server/workspaces';
 import type { RequestHandler } from './$types';
 
 function validSlug(s: unknown): s is string {
@@ -39,7 +39,12 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 	if (!validSlug(slug)) error(400, 'Slug inválido — use letras, números, hífens e underscores');
 	if (!content || typeof content !== 'string') error(400, 'Conteúdo obrigatório');
 	if (oldSlug !== undefined && !validSlug(oldSlug)) error(400, 'oldSlug inválido');
-	if (locals.user && !(await canAccess(locals.user.username, wsId))) error(404, 'Workspace não encontrado');
+	// Gate on `editor` role — viewers see the edit form in the UI for
+	// now (they can reach /new), so we stop the write here. 403 rather
+	// than 404 so the client can show "sem permissão" instead of
+	// pretending the workspace doesn't exist.
+	if (!locals.user) error(401, 'Autenticação obrigatória');
+	if (!(await canWrite(locals.user, wsId))) error(403, 'Sem permissão para editar este workspace');
 
 	const isRename = oldSlug && oldSlug !== slug;
 

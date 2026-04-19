@@ -129,10 +129,6 @@
 				{/if}
 			</ul>
 
-			<footer class="foot">
-				Workspaces são gerenciados em
-				<code>content/workspaces.json</code>.
-			</footer>
 		</div>
 	</div>
 {/if}
@@ -310,22 +306,4 @@
 	}
 
 	.empty em { color: var(--ink); font-style: normal; }
-
-	.foot {
-		padding: 10px 14px;
-		border-top: 1px solid var(--rule);
-		font-size: 12px;
-		color: var(--ink-muted);
-		background: var(--bg-deep);
-	}
-
-	.foot code {
-		font-family: var(--font-mono);
-		font-size: 11.5px;
-		color: var(--ink-soft);
-		background: var(--surface);
-		border: 1px solid var(--rule);
-		padding: 1px 6px;
-		border-radius: 3px;
-	}
 </style>

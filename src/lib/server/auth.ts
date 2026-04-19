@@ -18,17 +18,69 @@ const {
 	OIDC_CLIENT_SECRET,
 	OIDC_SCOPES,
 	OIDC_ALLOWED_GROUPS,
+	PLATFORM_ADMIN_LDAP_GROUPS,
+	PLATFORM_ADMIN_OIDC_GROUPS,
 	ORIGIN
 } = env;
+
+/**
+ * Resolve whether a given identity counts as a platform super-user. Called
+ * at login time and the result is baked into the session cookie — so the
+ * flag only changes on re-login, which is appropriate for a power this
+ * elevated. Sources:
+ *
+ *   1. Nothing if the identity is neither LDAP- nor OIDC-backed.
+ *   2. Intersect LDAP memberOf with PLATFORM_ADMIN_LDAP_GROUPS (pipe-sep).
+ *   3. Intersect OIDC groups with PLATFORM_ADMIN_OIDC_GROUPS (pipe-sep).
+ *
+ * The ADMIN_USER break-glass is handled separately at login — it's always
+ * a platform admin, no env list consulted.
+ */
+function splitList(s: string | undefined): string[] {
+	return s ? s.split('|').map((x) => x.trim()).filter(Boolean) : [];
+}
+
+function computeIsPlatformAdmin(
+	ldapGroups: string[] | undefined,
+	oidcGroups: string[] | undefined
+): boolean {
+	const ldapWanted = splitList(PLATFORM_ADMIN_LDAP_GROUPS);
+	const oidcWanted = splitList(PLATFORM_ADMIN_OIDC_GROUPS);
+	if (ldapWanted.length && ldapGroups?.some((g) => ldapWanted.includes(g))) return true;
+	if (oidcWanted.length && oidcGroups?.some((g) => oidcWanted.includes(g))) return true;
+	return false;
+}
 
 // ── Session (HMAC-signed cookie) ──────────────────────────────────────────
 
 const SESSION_DURATION_MS = parseInt(SESSION_HOURS ?? '8') * 60 * 60 * 1000;
 const COOKIE_NAME = 'docs_session';
 
-interface SessionPayload {
+/**
+ * The session cookie carries identity + group membership so `workspaces.ts`
+ * can resolve `ldap_group` and `oidc_claim` bindings without re-querying
+ * the directory on every request. Groups are refreshed on re-login.
+ *
+ * Trade-off: cookie grows linearly with the user's group count. Most
+ * directories have <50 memberships per user so we stay well under the
+ * 4KB cookie cap; cap here if that turns out to be wrong.
+ */
+export interface SessionInfo {
 	username: string;
 	displayName: string;
+	ldapGroups?: string[];
+	oidcGroups?: string[];
+	/**
+	 * Platform super-user flag. Bypasses every workspace-scoped gate.
+	 * Set at login time from the break-glass admin OR configured
+	 * PLATFORM_ADMIN_LDAP_GROUPS / PLATFORM_ADMIN_OIDC_GROUPS — never
+	 * editable from inside the app, so a compromised platform admin
+	 * can't elevate other accounts.
+	 */
+	isPlatformAdmin?: boolean;
+}
+
+interface SessionPayload extends SessionInfo {
 	exp: number;
 }
 
@@ -37,14 +89,13 @@ function sign(payload: string): string {
 	return createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
 }
 
-export function createSessionCookie(username: string, displayName: string): string {
-	const payload = Buffer.from(
-		JSON.stringify({ username, displayName, exp: Date.now() + SESSION_DURATION_MS })
-	).toString('base64url');
+export function createSessionCookie(info: SessionInfo): string {
+	const body: SessionPayload = { ...info, exp: Date.now() + SESSION_DURATION_MS };
+	const payload = Buffer.from(JSON.stringify(body)).toString('base64url');
 	return `${payload}.${sign(payload)}`;
 }
 
-export function verifySession(cookie: string | undefined): { username: string; displayName: string } | null {
+export function verifySession(cookie: string | undefined): SessionInfo | null {
 	if (!cookie) return null;
 	const dot = cookie.lastIndexOf('.');
 	if (dot === -1) return null;
@@ -67,14 +118,23 @@ export function verifySession(cookie: string | undefined): { username: string; d
 	}
 
 	if (Date.now() > data.exp) return null;
-	return { username: data.username, displayName: data.displayName ?? data.username };
+	return {
+		username: data.username,
+		displayName: data.displayName ?? data.username,
+		ldapGroups: data.ldapGroups,
+		oidcGroups: data.oidcGroups,
+		isPlatformAdmin: data.isPlatformAdmin
+	};
 }
 
 export const COOKIE_NAME_EXPORT = COOKIE_NAME;
 
 // ── LDAP (unchanged from previous version) ────────────────────────────────
 
-async function authenticateLDAP(username: string, password: string): Promise<string | null> {
+async function authenticateLDAP(
+	username: string,
+	password: string
+): Promise<{ displayName: string; groups: string[] } | null> {
 	if (!LDAP_URL || !LDAP_BASE_DN || !LDAP_DOMAIN) return null;
 
 	const { Client } = await import('ldapts');
@@ -102,12 +162,22 @@ async function authenticateLDAP(username: string, password: string): Promise<str
 		const { searchEntries } = await client.search(searchBase, {
 			scope: 'sub',
 			filter,
-			attributes: ['cn'],
+			// `memberOf` comes back as an array of full group DNs in AD/openLDAP.
+			// We store DNs verbatim so workspace bindings can match them exactly.
+			attributes: ['cn', 'memberOf'],
 			sizeLimit: 1
 		});
 
 		if (searchEntries.length === 0) return null;
-		return (searchEntries[0].cn as string) || username;
+		const entry = searchEntries[0];
+		const displayName = (entry.cn as string) || username;
+		const memberOf = entry.memberOf;
+		const groups: string[] = Array.isArray(memberOf)
+			? memberOf.filter((g): g is string => typeof g === 'string')
+			: typeof memberOf === 'string'
+				? [memberOf]
+				: [];
+		return { displayName, groups };
 	} catch {
 		return null;
 	} finally {
@@ -213,6 +283,9 @@ export interface OidcResult {
 	ok: true;
 	username: string;
 	displayName: string;
+	/** Values of the `groups` claim (if present), for workspace binding resolution. */
+	oidcGroups: string[];
+	isPlatformAdmin: boolean;
 }
 
 export async function finishOidcAuth(
@@ -261,7 +334,17 @@ export async function finishOidcAuth(
 			(typeof c.preferred_username === 'string' && c.preferred_username) ||
 			username;
 
-		return { ok: true, username, displayName };
+		const oidcGroups = Array.isArray(c.groups)
+			? (c.groups as unknown[]).filter((g): g is string => typeof g === 'string')
+			: [];
+
+		return {
+			ok: true,
+			username,
+			displayName,
+			oidcGroups,
+			isPlatformAdmin: computeIsPlatformAdmin(undefined, oidcGroups)
+		};
 	} catch (e) {
 		return { ok: false, error: e instanceof Error ? e.message : 'Falha na autenticação OIDC.' };
 	}
@@ -272,18 +355,36 @@ export async function finishOidcAuth(
 export async function login(
 	username: string,
 	password: string
-): Promise<{ ok: true; username: string; displayName: string } | { ok: false; error: string }> {
+): Promise<
+	| {
+			ok: true;
+			username: string;
+			displayName: string;
+			ldapGroups?: string[];
+			isPlatformAdmin?: boolean;
+	  }
+	| { ok: false; error: string }
+> {
 	if (!username || !password) return { ok: false, error: 'Credenciais obrigatórias.' };
 
-	// Admin break-glass first — fastest path, no network.
+	// Admin break-glass first — fastest path, no network. Always a platform
+	// admin; nothing else on this path consults the directory.
 	if (authenticateAdmin(username, password)) {
-		return { ok: true, username, displayName: username };
+		return { ok: true, username, displayName: username, isPlatformAdmin: true };
 	}
 
 	// LDAP if configured.
 	if (isLdapConfigured()) {
-		const ldapName = await authenticateLDAP(username, password);
-		if (ldapName !== null) return { ok: true, username, displayName: ldapName };
+		const result = await authenticateLDAP(username, password);
+		if (result !== null) {
+			return {
+				ok: true,
+				username,
+				displayName: result.displayName,
+				ldapGroups: result.groups,
+				isPlatformAdmin: computeIsPlatformAdmin(result.groups, undefined)
+			};
+		}
 	}
 
 	return { ok: false, error: 'Usuário ou senha inválidos.' };

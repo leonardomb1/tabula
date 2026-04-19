@@ -161,6 +161,21 @@
 		}
 	});
 
+	// Handoff from the search palette: consume the pending query, drop it
+	// into the input, and move the caret to the end so the user can tweak
+	// or press Enter. Reset pendingQuery after reading to make it one-shot.
+	$effect(() => {
+		const q = aiDock.pendingQuery;
+		if (!q) return;
+		question = q;
+		aiDock.pendingQuery = null;
+		setTimeout(() => {
+			inputEl?.focus();
+			const len = inputEl?.value.length ?? 0;
+			inputEl?.setSelectionRange(len, len);
+		}, 200);
+	});
+
 	onMount(() => {
 		window.addEventListener('keydown', onGlobalKey);
 		return () => window.removeEventListener('keydown', onGlobalKey);
@@ -456,13 +471,25 @@
 		border-radius: 3px;
 	}
 	.answer-md :global(pre) {
-		background: var(--bg-deep);
+		background: var(--code-surface);
 		border: 1px solid var(--rule);
 		border-radius: 6px;
 		padding: 8px 10px;
 		overflow-x: auto;
 		margin: 0 0 0.5em;
 	}
+
+	/* The markdown pipeline wraps every code block in .code-block with a
+	   header (language + copy). In the chat bubbles we tighten the default
+	   margins so the header doesn't balloon compact answers. */
+	.answer-md :global(.code-block) { margin: 6px 0 8px; }
+	.answer-md :global(.code-head) {
+		padding: 2px 8px;
+		min-height: 20px;
+		font-size: 9.5px;
+		border-radius: 5px 5px 0 0;
+	}
+	.answer-md :global(.code-block > pre) { padding: 6px 10px; }
 	.answer-md :global(pre code) { background: none; border: 0; padding: 0; font-size: 12px; }
 	.answer-md :global(a) { color: var(--accent-ink); border-bottom: 1px solid var(--accent-soft); }
 

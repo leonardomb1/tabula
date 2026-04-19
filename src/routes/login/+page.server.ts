@@ -19,7 +19,12 @@ export const actions: Actions = {
 			return fail(401, { error: result.error, username });
 		}
 
-		cookies.set('docs_session', createSessionCookie(result.username, result.displayName), {
+		cookies.set('docs_session', createSessionCookie({
+			username: result.username,
+			displayName: result.displayName,
+			ldapGroups: result.ldapGroups,
+			isPlatformAdmin: result.isPlatformAdmin
+		}), {
 			path: '/',
 			httpOnly: true,
 			sameSite: 'lax',

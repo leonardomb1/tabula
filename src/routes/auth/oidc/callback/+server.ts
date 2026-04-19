@@ -23,7 +23,12 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	const result = await finishOidcAuth(url, { state, codeVerifier, nonce });
 	if (!result.ok) error(401, result.error);
 
-	cookies.set('docs_session', createSessionCookie(result.username, result.displayName), {
+	cookies.set('docs_session', createSessionCookie({
+		username: result.username,
+		displayName: result.displayName,
+		oidcGroups: result.oidcGroups,
+		isPlatformAdmin: result.isPlatformAdmin
+	}), {
 		path: '/',
 		httpOnly: true,
 		sameSite: 'lax',

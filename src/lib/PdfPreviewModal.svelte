@@ -144,6 +144,22 @@
 		flex-direction: column;
 		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 		overflow: hidden;
+		max-width: 100%;
+		max-height: 100%;
+	}
+
+	/* Phones: full-screen, rounded corners dropped so the modal
+	   doesn't get squeezed by the 2rem backdrop padding (which
+	   would make the iframe viewer too small to use). The iframe
+	   still fills 100% of its parent. */
+	@media (max-width: 640px) {
+		.backdrop { padding: 0; }
+		.modal {
+			width: 100%;
+			height: 100%;
+			border: 0;
+			border-radius: 0;
+		}
 	}
 
 	.modal-header {

@@ -9,11 +9,19 @@
 			// path (prefers-color-scheme). Wrapped in try/catch because a
 			// restricted-storage context (Safari private, blocked cookies)
 			// must still boot without throwing.
+			//
+			// Also mirrors the choice to a cookie so the server can render
+			// theme-aware assets (e.g. the brand logo's negative variant)
+			// on the initial HTML without a client-side swap.
 			(function () {
 				try {
 					var t = localStorage.getItem('tabula-theme');
 					if (t === 'light' || t === 'dark') {
 						document.documentElement.dataset.theme = t;
+					}
+					var hasCookie = document.cookie.indexOf('tabula-theme=') !== -1;
+					if ((t === 'light' || t === 'dark') && !hasCookie) {
+						document.cookie = 'tabula-theme=' + t + '; path=/; max-age=31536000; samesite=lax';
 					}
 				} catch (_) {}
 			})();

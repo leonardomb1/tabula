@@ -106,7 +106,24 @@ async function listS3(prefix: string): Promise<ListedKey[]> {
 	let startAfter: string | undefined;
 	// Paginate; R2/S3 returns up to 1000 per call.
 	for (let guard = 0; guard < 100; guard++) {
-		const res = await s3!.list({ prefix, maxKeys: 1000, startAfter });
+		let res;
+		try {
+			res = await s3!.list({ prefix, maxKeys: 1000, startAfter });
+		} catch (e) {
+			// Bun's S3Client throws a generic "unexpected error" string on
+			// the toString path — that hides the real cause. Surface the
+			// underlying fields so container logs show what's wrong
+			// (auth failure, DNS miss, bucket mismatch, etc.).
+			const err = e as { code?: string; message?: string; statusCode?: number; name?: string };
+			console.error('[storage] S3 list failed', {
+				prefix,
+				name: err.name,
+				code: err.code,
+				statusCode: err.statusCode,
+				message: err.message
+			});
+			throw e;
+		}
 		const items = res.contents ?? [];
 		for (const it of items) {
 			out.push({

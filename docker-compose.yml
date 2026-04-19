@@ -1,12 +1,64 @@
 services:
+  # One-shot service: runs the schema migration + seeding against the
+  # postgres container, then exits. `docs` waits for it to complete
+  # successfully before starting — so a `docker compose up` on a fresh
+  # volume initializes the DB end-to-end without a manual step. Re-runs
+  # are safe (migrate skips applied files; seed is idempotent).
+  migrate:
+    build: .
+    restart: on-failure
+    command: ["/bin/sh", "-c", "bun db/migrate.ts && bun db/seed-workspaces.ts"]
+    environment:
+      DATABASE_URL: postgres://tabula:tabula@postgres:5432/tabula?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   docs:
     build: .
     restart: unless-stopped
     ports:
       - "3000:3000"
     env_file: .env
+    # In-compose the app reaches Postgres via the service name, not
+    # localhost — the DATABASE_URL from .env (which is host-scoped) is
+    # overridden here so developers don't have to keep two copies.
+    environment:
+      DATABASE_URL: postgres://tabula:tabula@postgres:5432/tabula?sslmode=disable
     # Bind-mount the host's ./content so logos, attachments, covers, and
     # docs edited on the host are visible in the container (and vice versa).
     # When STORAGE=s3 the app ignores this mount and reads from R2 instead.
     volumes:
       - ./content:/app/content
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    ports:
+      # Exposed so `bun db/migrate.ts` on the host can reach it.
+      # Flip to an internal-only network if you don't want that.
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: tabula
+      POSTGRES_PASSWORD: tabula
+      POSTGRES_DB: tabula
+    volumes:
+      # PG18+ expects the volume at /var/lib/postgresql (parent dir) so it
+      # can write to a major-version-named subdirectory — /var/lib/postgresql/18
+      # here. Mounting at /data directly triggers a refusal to start on
+      # fresh installs and blocks pg_upgrade later.
+      # See: https://github.com/docker-library/postgres/pull/1259
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tabula -d tabula"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

@@ -1,6 +1,6 @@
 import type { Cookies } from '@sveltejs/kit';
 import { readBranding } from '$lib/branding';
-import { listForUser, getForUser, PERSONAL_PREFIX, type Workspace } from '$lib/server/workspaces';
+import { listForUser, getForUser, getRole, PERSONAL_PREFIX, type Role, type Workspace } from '$lib/server/workspaces';
 
 export const load = async ({
 	locals,
@@ -9,17 +9,19 @@ export const load = async ({
 	locals: App.Locals;
 	cookies: Cookies;
 }) => {
-	const branding = readBranding();
-	const username = locals.user?.username;
+	const branding = readBranding(cookies.get('tabula-theme'));
+	const user = locals.user;
 
-	if (!username) return { user: null, branding, workspaces: [], currentWs: null };
+	if (!user) return { user: null, branding, workspaces: [], currentWs: null, currentRole: null };
 
-	const workspaces = await listForUser(username);
+	const workspaces = await listForUser(user);
 	const cookieWs = cookies.get('docs_ws');
 	let currentWs: Workspace | null = null;
-	if (cookieWs) currentWs = await getForUser(username, cookieWs);
-	if (!currentWs) currentWs = workspaces.find((w) => w.id === `${PERSONAL_PREFIX}${username}`) ?? null;
+	if (cookieWs) currentWs = await getForUser(user, cookieWs);
+	if (!currentWs) currentWs = workspaces.find((w) => w.id === `${PERSONAL_PREFIX}${user.username}`) ?? null;
 	if (!currentWs) currentWs = workspaces[0] ?? null;
 
-	return { user: locals.user, branding, workspaces, currentWs };
+	const currentRole: Role | null = currentWs ? await getRole(user, currentWs.id) : null;
+
+	return { user, branding, workspaces, currentWs, currentRole };
 };

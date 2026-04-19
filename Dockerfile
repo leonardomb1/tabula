@@ -54,6 +54,11 @@ RUN bun install --frozen-lockfile --production \
 
 COPY --from=builder /app/build ./build
 
+# `db/` travels with the runtime image so the compose `migrate` service
+# can reuse it (bun db/migrate.ts, bun db/seed-workspaces.ts) without a
+# separate image or bind-mounts.
+COPY db ./db
+
 # Non-root user. Only /app/content needs to be writable at runtime, so scope
 # chown tightly — `chown -R /app` (or anything under /app/.cache, which holds
 # the ~600MB chromium binary) would duplicate that size in a new layer.

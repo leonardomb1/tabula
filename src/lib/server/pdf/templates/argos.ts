@@ -57,12 +57,18 @@ const CSS = `
 }
 
 @page cover-page {
+  /* Named pages don't reliably inherit the size descriptor from the
+     default @page in Chromium — omitting it makes the cover render on
+     Letter-sized sheets, leaving ~17 mm of blank space at the bottom of
+     the A4 output. Re-declaring pins it. */
+  size: A4;
   margin: 0;
   @bottom-left  { content: none; }
   @bottom-right { content: none; }
 }
 
 @page toc-page {
+  size: A4;
   @bottom-left  { content: none; }
   @bottom-right { content: none; }
 }
@@ -438,7 +444,14 @@ html {
   page-break-after: avoid;
 }
 
-.doc-content p { margin: 0 0 3.5mm; orphans: 3; widows: 3; }
+.doc-content p {
+  margin: 0 0 3.5mm;
+  orphans: 3;
+  widows: 3;
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
 
 .doc-content a { color: #1a1a1a; text-decoration: underline; }
 

@@ -34,7 +34,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const wsFromPath = pathname.startsWith('/w/') ? pathname.split('/')[2] : null;
 	const wsFromQuery = event.url.searchParams.get('ws');
 	const wsId = wsFromPath ?? wsFromQuery;
-	if (wsId && !(await canAccess(event.locals.user.username, wsId))) {
+	if (wsId && !(await canAccess(event.locals.user, wsId))) {
 		return new Response('Not found', { status: 404 });
 	}
 

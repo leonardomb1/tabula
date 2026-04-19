@@ -23,7 +23,13 @@ export const GET: RequestHandler = async ({ params }) => {
 	return new Response(buf, {
 		headers: {
 			'content-type': MIME[ext] ?? 'application/octet-stream',
-			'cache-control': 'public, max-age=3600'
+			// Aggressive client-side cache: 7 days fresh, 30 days stale-
+			// while-revalidate. Branding assets change rarely; when they do,
+			// a hard reload refreshes. `public` lets shared caches (CDNs,
+			// corporate proxies) serve too. We serve *both* the positive
+			// and negative logos on every page, so long cache is load-
+			// bearing for perf.
+			'cache-control': 'public, max-age=604800, stale-while-revalidate=2592000'
 		}
 	});
 };
