@@ -78,22 +78,22 @@
 <style>
 	.login-page {
 		min-height: 100vh;
-		background: #fafaf8;
+		background: var(--bg);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-family: ui-sans-serif, system-ui, sans-serif;
+		font-family: var(--font-sans);
 		padding: 1rem;
 	}
 
 	.login-card {
-		background: #fff;
-		border: 1px solid #e0ddd5;
+		background: var(--surface);
+		border: 1px solid var(--rule);
 		border-radius: 12px;
 		padding: 2.5rem 2rem;
 		width: 100%;
 		max-width: 360px;
-		box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+		box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.1);
 	}
 
 	.logo-wrap {
@@ -103,30 +103,32 @@
 	}
 
 	.card-title {
-		font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+		font-family: var(--font-serif-display);
 		font-size: 1.4rem;
-		font-weight: 600;
-		color: #1a1a1a;
+		font-weight: 500;
+		color: var(--ink);
 		text-align: center;
 		margin: 0 0 0.25rem;
 	}
 
 	.card-sub {
 		font-size: 0.82rem;
-		color: #999;
+		color: var(--ink-muted);
 		text-align: center;
 		margin: 0 0 1.75rem;
 	}
 
 	.error-msg {
-		background: #fff5f5;
-		border: 1px solid #fca5a5;
-		color: #b91c1c;
+		background: color-mix(in oklab, oklch(0.6 0.18 25) 12%, transparent);
+		border: 1px solid color-mix(in oklab, oklch(0.6 0.18 25) 40%, transparent);
+		color: oklch(0.5 0.18 25);
 		font-size: 0.83rem;
 		padding: 0.6rem 0.85rem;
 		border-radius: 6px;
 		margin-bottom: 1rem;
 	}
+
+	:global([data-theme='dark']) .error-msg { color: oklch(0.78 0.16 25); }
 
 	.login-form {
 		display: flex;
@@ -143,29 +145,30 @@
 	label {
 		font-size: 0.8rem;
 		font-weight: 500;
-		color: #555;
+		color: var(--ink-soft);
 	}
 
 	input {
-		border: 1px solid #d8d5ce;
+		border: 1px solid var(--rule);
 		border-radius: 7px;
 		padding: 0.55rem 0.8rem;
 		font-size: 0.92rem;
-		color: #1a1a1a;
+		color: var(--ink);
 		outline: none;
-		background: #fafaf8;
+		background: var(--bg);
 		transition: border-color 0.15s, box-shadow 0.15s;
+		font-family: inherit;
 	}
 
 	input:focus {
-		border-color: #b0a890;
-		box-shadow: 0 0 0 3px rgba(180, 165, 130, 0.18);
-		background: #fff;
+		border-color: var(--accent);
+		box-shadow: 0 0 0 3px var(--accent-soft);
+		background: var(--surface);
 	}
 
 	.submit-btn {
 		margin-top: 0.25rem;
-		background: var(--brand);
+		background: var(--accent);
 		color: #fff;
 		border: none;
 		padding: 0.65rem 1rem;
@@ -173,7 +176,7 @@
 		font-size: 0.92rem;
 		font-weight: 500;
 		cursor: pointer;
-		transition: background 0.15s;
+		transition: filter 0.15s;
 	}
 
 	.sso-btn {
@@ -184,44 +187,41 @@
 		width: 100%;
 		padding: 0.65rem 1rem;
 		margin-bottom: 1rem;
-		background: #fff;
-		border: 1px solid #d8d5ce;
+		background: var(--surface);
+		border: 1px solid var(--rule);
 		border-radius: 7px;
-		color: #1a1a1a;
+		color: var(--ink);
 		font-size: 0.92rem;
 		font-weight: 500;
 		text-decoration: none;
 		cursor: pointer;
 		transition: background 0.15s, border-color 0.15s;
 	}
-	.sso-btn:hover { background: #f5f3ee; border-color: var(--brand); }
 
-	.sso-icon { width: 16px; height: 16px; color: var(--brand); flex-shrink: 0; }
+	.sso-btn:hover { background: var(--bg-deep); border-color: var(--accent); }
+
+	.sso-icon { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; }
 
 	.sep {
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
 		margin-bottom: 1rem;
-		color: #aaa;
+		color: var(--ink-muted);
 		font-size: 0.75rem;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 	}
+
 	.sep::before, .sep::after {
 		content: '';
 		flex: 1;
 		height: 1px;
-		background: #e0ddd5;
+		background: var(--rule);
 	}
 
-	.submit-btn:hover {
-		background: color-mix(in srgb, var(--brand) 85%, black);
-	}
-
-	.submit-btn:active {
-		background: color-mix(in srgb, var(--brand) 70%, black);
-	}
+	.submit-btn:hover { filter: brightness(1.08); }
+	.submit-btn:active { filter: brightness(0.92); }
 
 	@media (max-width: 640px) {
 		.login-card { padding: 2rem 1.25rem; }

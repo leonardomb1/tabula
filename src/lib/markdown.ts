@@ -1,7 +1,7 @@
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import markedKatex from 'marked-katex-extension';
-import matter from 'gray-matter';
+import { load as yamlLoad } from 'js-yaml';
 
 marked.setOptions({ gfm: true, breaks: false });
 marked.use(markedKatex({ throwOnError: false, nonStandard: true }));
@@ -39,15 +39,27 @@ const wikiLinkExt = {
 };
 marked.use({ extensions: [wikiLinkExt] });
 
-// Wrap every <table> in a scrollable container so wide tables don't overflow
-// the viewport on mobile — the wrapper scrolls horizontally instead.
+// Post-processing on the rendered HTML:
+//
+//   1. Wrap every <table> in a scrollable container so wide tables don't
+//      overflow the viewport on mobile — the wrapper scrolls horizontally
+//      on the web view and collapses to full width for print.
+//   2. Turn `<!-- pagebreak -->` comments into a zero-height div with
+//      `break-before: page`. Invisible in the web viewer; PDF templates
+//      all respect CSS fragmentation breaks, so the marker forces a new
+//      page in argos, acm, ieee and abnt without extra CSS per template.
 marked.use({
 	hooks: {
 		postprocess(html: string) {
-			return html.replace(
-				/<table(\s[^>]*)?>([\s\S]*?)<\/table>/g,
-				'<div class="table-wrap"><table$1>$2</table></div>'
-			);
+			return html
+				.replace(
+					/<table(\s[^>]*)?>([\s\S]*?)<\/table>/g,
+					'<div class="table-wrap"><table$1>$2</table></div>'
+				)
+				.replace(
+					/<!--\s*pagebreak\s*-->/gi,
+					'<div class="page-break" style="break-before:page;height:0;margin:0;padding:0" aria-hidden="true"></div>'
+				);
 		}
 	}
 });
@@ -58,12 +70,24 @@ export function extractWikiLinks(source: string): string[] {
 
 export interface Frontmatter {
 	title?: string;
-	author?: string;
+	author?: string | string[];
 	date?: string;
 	description?: string;
 	public?: boolean;
 	tags?: string[];
 	formal?: boolean;
+
+	/**
+	 * Picks the PDF template. Defaults to `argos` when absent so legacy docs
+	 * keep rendering with their flat-key options.
+	 */
+	template?: string;
+
+	/**
+	 * Legacy flat argos keys — read by the export endpoint when no
+	 * `argos:` sub-map is present. Kept here for docs written before the
+	 * namespaced layout.
+	 */
 	version?: string;
 	doctype?: string;
 	footer?: string;
@@ -73,6 +97,15 @@ export interface Frontmatter {
 	confidential?: boolean;
 	company?: string;
 	qrCode?: boolean;
+
+	/**
+	 * Namespaced template options. Opaque to the client — each server-side
+	 * template narrows its own sub-map with runtime type checks.
+	 */
+	argos?: Record<string, unknown>;
+	acm?: Record<string, unknown>;
+	ieee?: Record<string, unknown>;
+	abnt?: Record<string, unknown>;
 }
 
 export interface TocEntry {
@@ -88,10 +121,19 @@ export interface RenderResult {
 	frontmatter: Frontmatter;
 }
 
+// Matches YAML frontmatter at the very start of the doc: `---\n<yaml>\n---\n`.
+// Using js-yaml directly (instead of gray-matter) so the parser runs identically
+// in Node and the browser — gray-matter pulls in Node built-ins that silently
+// fail client-side and leave the raw YAML visible in the rendered preview.
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+
 export function parseFrontmatter(source: string): { frontmatter: Frontmatter; body: string } {
+	const match = FRONTMATTER_RE.exec(source);
+	if (!match) return { frontmatter: {}, body: source };
 	try {
-		const { data, content } = matter(source);
-		return { frontmatter: data as Frontmatter, body: content };
+		const parsed = yamlLoad(match[1]);
+		const frontmatter = (parsed && typeof parsed === 'object') ? (parsed as Frontmatter) : {};
+		return { frontmatter, body: source.slice(match[0].length) };
 	} catch {
 		return { frontmatter: {}, body: source };
 	}

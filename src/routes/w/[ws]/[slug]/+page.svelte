@@ -1,25 +1,195 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import Search from '$lib/Search.svelte';
-	import BrandLogo from "$lib/BrandLogo.svelte";
+	import BrandLogo from '$lib/BrandLogo.svelte';
 	import UserMenu from '$lib/UserMenu.svelte';
+	import PdfPreviewModal from '$lib/PdfPreviewModal.svelte';
+	import { aiDock, toggleAi } from '$lib/aiDock.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
+	import { cubicOut } from 'svelte/easing';
+
 	let { data }: { data: PageData } = $props();
 
+	let previewOpen = $state(false);
+	let copied = $state(false);
+	let menuOpen = $state(false);
+	let menuWrapEl = $state<HTMLDivElement | null>(null);
+	let activeTocId = $state<string | null>(null);
+	let activeCiteKey = $state<string | null>(null);
+	let margListEl = $state<HTMLElement | null>(null);
+	let tocRailEl = $state<HTMLElement | null>(null);
+	let showBackToTop = $state(false);
+
+	// Drive layout grid: when the left rail has nothing to show we drop
+	// the aside and collapse the first column so the article doesn't get
+	// squeezed into the old 260px slot.
+	const hasLeftRail = $derived(data.citedRefs.length > 0 || data.backlinks.length > 0);
+
+	// Shared drop-in animation: fade + slide-down + scale-from-0.96, anchored
+	// top-right so it feels like it pops out of the trigger. Same shape as
+	// UserMenu's dropdown — kept inline here to avoid a one-export lib file.
+	function popIn(_node: Element, { duration = 160 } = {}) {
+		return {
+			duration,
+			easing: cubicOut,
+			css: (t: number) =>
+				`opacity: ${t};` +
+				`transform: translateY(${(1 - t) * -6}px) scale(${0.96 + t * 0.04});` +
+				`transform-origin: top right;`
+		};
+	}
+
+	// Close the kebab menu on outside click / Escape — without these, opening
+	// it and navigating away clicks-through to the page behind.
+	function onDocClick(e: MouseEvent) {
+		if (!menuOpen) return;
+		if (menuWrapEl && !menuWrapEl.contains(e.target as Node)) menuOpen = false;
+	}
+
+	function onDocKey(e: KeyboardEvent) {
+		if (menuOpen && e.key === 'Escape') menuOpen = false;
+	}
+
+	// Mermaid re-render whenever the HTML changes. Initialize once, cheap to
+	// call run() when no .mermaid nodes exist.
 	$effect(() => {
 		data.html;
 		import('mermaid').then(({ default: mermaid }) => {
 			mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
-			mermaid.run({ querySelector: '.mermaid' });
+			// Narrow containers make mermaid throw "Could not find a suitable
+			// point" and similar layout errors. Swallow — the worst case is
+			// the raw fenced code stays on screen instead of the diagram.
+			mermaid.run({ querySelector: '.mermaid' }).catch(() => {});
 		});
 	});
 
+	// Scroll-spy for the right-rail TOC. IntersectionObserver flags the
+	// closest visible heading; the TOC list highlights the matching entry.
+	$effect(() => {
+		data.html;
+		const headings = Array.from(
+			document.querySelectorAll('.doc-body :is(h1, h2, h3, h4)[id]')
+		) as HTMLElement[];
+		if (headings.length === 0) return;
+
+		// Sorted list of heading positions tracked as they scroll past the
+		// reading zone (roughly 30% viewport height down). Using scroll events
+		// instead of IO here so we always pick the *last* heading above the
+		// threshold — IO alone can leave the first visible entry selected
+		// even after it's scrolled off the top.
+		const onScroll = () => {
+			const threshold = window.innerHeight * 0.3;
+			let current: string | null = null;
+			for (const h of headings) {
+				if (h.getBoundingClientRect().top < threshold) current = h.id;
+				else break;
+			}
+			if (current !== activeTocId) activeTocId = current;
+		};
+		onScroll();
+		window.addEventListener('scroll', onScroll, { passive: true });
+		return () => window.removeEventListener('scroll', onScroll);
+	});
+
+	// Scroll-spy for the left-rail "Na margem" citation cards. Mirrors the
+	// TOC pattern: the last inline cite that scrolled past the reading-zone
+	// threshold becomes the active one; its card highlights and, when the
+	// rail is too short to fit all cards in view, scrolls the card into
+	// view within the rail container.
+	$effect(() => {
+		data.html;
+		if (data.citedRefs.length === 0) return;
+
+		const cites = Array.from(
+			document.querySelectorAll<HTMLElement>('.doc-body .cite-link[href^="#ref-"]')
+		);
+		if (cites.length === 0) return;
+
+		const onScroll = () => {
+			const threshold = window.innerHeight * 0.35;
+			let current: string | null = null;
+			for (const a of cites) {
+				if (a.getBoundingClientRect().top < threshold) {
+					const href = a.getAttribute('href') ?? '';
+					current = href.replace(/^#ref-/, '') || null;
+				} else break;
+			}
+			if (current !== activeCiteKey) activeCiteKey = current;
+		};
+		onScroll();
+		window.addEventListener('scroll', onScroll, { passive: true });
+		return () => window.removeEventListener('scroll', onScroll);
+	});
+
+	// Keep the active marginalia card in view inside the rail. We scroll
+	// the rail container (not the page) so the body position doesn't jump
+	// when the active cite changes.
+	$effect(() => {
+		activeCiteKey;
+		if (!activeCiteKey || !margListEl) return;
+		const card = margListEl.querySelector<HTMLElement>(
+			`[data-cite-key="${CSS.escape(activeCiteKey)}"]`
+		);
+		if (!card) return;
+		const rail = margListEl;
+		const railBox = rail.getBoundingClientRect();
+		const cardBox = card.getBoundingClientRect();
+		if (cardBox.top < railBox.top || cardBox.bottom > railBox.bottom) {
+			card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		}
+	});
+
+	// Mirror the same pattern for the right-rail TOC — on long docs the
+	// rail overflows and the active entry disappears above the fold as
+	// the reader scrolls. Keep it in view within the rail's own scroller.
+	$effect(() => {
+		activeTocId;
+		if (!activeTocId || !tocRailEl) return;
+		const item = tocRailEl.querySelector<HTMLElement>('li.is-active');
+		if (!item) return;
+		const railBox = tocRailEl.getBoundingClientRect();
+		const itemBox = item.getBoundingClientRect();
+		if (itemBox.top < railBox.top || itemBox.bottom > railBox.bottom) {
+			item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		}
+	});
+
+	// Show a floating "back to top" button once the reader has scrolled
+	// past roughly one viewport height. 80% keeps it from flashing on
+	// short docs while staying close enough for long ones to catch it
+	// near the end of the first screen.
+	$effect(() => {
+		const onScroll = () => {
+			const next = window.scrollY > window.innerHeight * 0.8;
+			if (next !== showBackToTop) showBackToTop = next;
+		};
+		onScroll();
+		window.addEventListener('scroll', onScroll, { passive: true });
+		return () => window.removeEventListener('scroll', onScroll);
+	});
+
+	function scrollToTop() {
+		window.scrollTo({ top: 0, behavior: 'smooth' });
+	}
+
+	/** Hovering or focusing an inline cite promotes its card to the active
+	 * one — the scroll-spy effect above does the rest (highlight + scroll
+	 * into view). Accepts both MouseEvent and FocusEvent. */
+	function onBodyMouseOver(e: Event) {
+		const target = (e.target as HTMLElement).closest?.('.cite-link') as HTMLElement | null;
+		if (!target) return;
+		const href = target.getAttribute('href') ?? '';
+		const key = href.replace(/^#ref-/, '');
+		if (key) activeCiteKey = key;
+	}
+
+	// Highlight a specific term when arriving from search — wraps the first
+	// match in a <mark> and scrolls it into view.
 	$effect(() => {
 		const highlight = $page.url.searchParams.get('highlight');
 		if (!highlight) return;
 
-		// Wait for the HTML to be in the DOM
 		setTimeout(() => {
 			const body = document.querySelector('.doc-body');
 			if (!body) return;
@@ -50,31 +220,6 @@
 		}, 80);
 	});
 
-	let copied = $state(false);
-	let generatingPdf = $state(false);
-	let pdfError = $state('');
-	let menuOpen = $state(false);
-
-	async function downloadPdf() {
-		generatingPdf = true;
-		pdfError = '';
-		try {
-			const res = await fetch(`/api/export/${data.slug}?format=pdf&ws=${data.ws.id}`);
-			if (!res.ok) { pdfError = 'Erro ao gerar PDF'; return; }
-			const blob = await res.blob();
-			const url = URL.createObjectURL(blob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = `${data.slug}.pdf`;
-			a.click();
-			URL.revokeObjectURL(url);
-		} catch {
-			pdfError = 'Erro ao gerar PDF';
-		} finally {
-			generatingPdf = false;
-		}
-	}
-
 	function copyPublicLink() {
 		navigator.clipboard.writeText(`${location.origin}/public/${data.slug}`);
 		copied = true;
@@ -88,7 +233,7 @@
 		if (res.ok) goto('/');
 	}
 
-	function formatMeta(d: Date) {
+	function formatMeta(d: Date | string) {
 		return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 	}
 </script>
@@ -97,657 +242,1071 @@
 	<title>{data.title}</title>
 </svelte:head>
 
-<div class="doc-page">
-	<header class="site-header">
-		<div class="header-inner">
-			<BrandLogo />
-			<a href="/" class="back-link" aria-label="Voltar para {data.ws.name}">
-				<span class="back-full">← {data.ws.name}</span>
-				<span class="back-short" aria-hidden="true">←</span>
-			</a>
-			<Search />
-			<div class="header-actions">
-				<div class="extras" class:menu-open={menuOpen}>
-					{#if data.frontmatter.public}
-						<button class="action-btn public-link-btn" onclick={copyPublicLink}>
-							{copied ? '✓ Copiado!' : '⬡ Público'}
-						</button>
-					{/if}
-					{#if data.frontmatter.formal}
-						<button class="action-btn pdf-btn" onclick={downloadPdf} disabled={generatingPdf}>
-							{#if generatingPdf}
-								<span class="pdf-spinner"></span> Gerando…
-							{:else if pdfError}
-								✕ Erro
-							{:else}
-								↓ PDF
-							{/if}
-						</button>
-					{/if}
-					<a href="/api/export/{data.slug}?format=md&ws={data.ws.id}" class="action-btn" download>↓ MD</a>
-					<a href="/api/export/{data.slug}?format=html&ws={data.ws.id}" class="action-btn" download>↓ HTML</a>
-					<button class="delete-btn" onclick={deleteDoc}>Excluir</button>
-				</div>
-				<a href="/new?edit={data.slug}&ws={data.ws.id}" class="edit-btn">Editar</a>
-				<button class="menu-toggle" onclick={() => menuOpen = !menuOpen} aria-label="Mais ações" aria-expanded={menuOpen}>⋯</button>
+<svelte:document onclick={onDocClick} onkeydown={onDocKey} />
+
+<div class="atelier">
+	<header class="top-bar">
+		<div class="top-bar-inner">
+			<div class="brand">
+				<BrandLogo height={26} />
+				<span class="brand-sep">/</span>
+				<a class="breadcrumb" href="/">{data.ws.name}</a>
 			</div>
-			<UserMenu />
+
+			<Search />
+
+			<div class="actions">
+				<button
+					type="button"
+					class="action-btn icon-btn"
+					class:is-active={aiDock.open}
+					onclick={toggleAi}
+					title="Assistente IA (⌘J)"
+					aria-label="Abrir assistente"
+				>
+					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<path d="M3 3.5h10a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-1.5H3A1.5 1.5 0 0 1 1.5 10V5A1.5 1.5 0 0 1 3 3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+						<path d="M5.2 7.2h.01M8 7.2h.01M10.8 7.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+					</svg>
+				</button>
+				{#if data.frontmatter.public}
+					<button class="action-btn" onclick={copyPublicLink}>
+						{copied ? '✓ Copiado' : '⬡ Público'}
+					</button>
+				{/if}
+				{#if data.frontmatter.formal}
+					<button class="action-btn" onclick={() => (previewOpen = true)}>↓ PDF</button>
+				{/if}
+				<a href="/new?edit={data.slug}&ws={data.ws.id}" class="action-btn primary">Editar</a>
+				<div class="more-wrap" class:menu-open={menuOpen} bind:this={menuWrapEl}>
+					<button
+						class="action-btn more-btn"
+						onclick={() => (menuOpen = !menuOpen)}
+						aria-label="Mais ações"
+						aria-expanded={menuOpen}
+					>⋯</button>
+					{#if menuOpen}
+						<div class="more-menu" role="menu" transition:popIn>
+							<a href="/api/export/{data.slug}?format=md&ws={data.ws.id}" class="more-item" download>↓ Markdown</a>
+							<a href="/api/export/{data.slug}?format=html&ws={data.ws.id}" class="more-item" download>↓ HTML</a>
+							<hr/>
+							<button class="more-item danger" onclick={deleteDoc}>Excluir</button>
+						</div>
+					{/if}
+				</div>
+				<UserMenu />
+			</div>
 		</div>
 	</header>
 
-	<div class="doc-layout">
-		{#if data.toc.length > 2 || data.backlinks.length > 0}
-			<aside class="toc">
-				{#if data.toc.length > 2}
-					<p class="toc-heading">Índice</p>
-					<ol class="toc-list">
-						{#each data.toc as entry}
-							<li class="toc-item toc-level-{entry.level}">
-								<a href="#{entry.id}">{entry.text}</a>
-							</li>
-						{/each}
-					</ol>
+	<div
+		class="layout"
+		class:no-left={!hasLeftRail}
+		class:no-right={data.toc.length <= 2}
+	>
+		{#if hasLeftRail}
+			<aside class="left-rail">
+				{#if data.citedRefs.length > 0}
+					<section class="marg">
+						<p class="rail-head">Na margem</p>
+						<div class="marg-list" bind:this={margListEl}>
+							{#each data.citedRefs as ref (ref.key)}
+								<article
+									class="marg-card"
+									class:is-active={activeCiteKey === ref.key}
+									data-cite-key={ref.key}
+								>
+									<a href="#ref-{ref.key}" class="marg-link">
+										<span class="marg-kind">Citação · {ref.key.toUpperCase()}</span>
+										<span class="marg-label">{ref.label}</span>
+										<span class="marg-title">{ref.title}</span>
+									</a>
+								</article>
+							{/each}
+						</div>
+					</section>
 				{/if}
+
 				{#if data.backlinks.length > 0}
-					<p class="toc-heading" style="margin-top: {data.toc.length > 2 ? '1.5rem' : '0'}">Referenciado por</p>
-					<div class="backlinks-list">
-						{#each data.backlinks as bl}
-							<a href="/{bl.slug}" class="backlink-chip">{bl.title}</a>
-						{/each}
-					</div>
+					<section class="backlinks">
+						<p class="rail-head">Referenciado por</p>
+						<ul class="backlinks-list">
+							{#each data.backlinks as bl}
+								<li><a href="/w/{data.ws.id}/{bl.slug}">{bl.title}</a></li>
+							{/each}
+						</ul>
+					</section>
 				{/if}
 			</aside>
 		{/if}
 
-		<article class="doc-body prose">
-			{@html data.html}
-
-			<footer class="article-footer">
-				{#if data.frontmatter.author}
-					<span>Por {data.frontmatter.author}</span>
-					<span class="sep">·</span>
-				{/if}
-				{#if data.frontmatter.date}
-					<span>Criado em {formatMeta(new Date(data.frontmatter.date))}</span>
-					<span class="sep">·</span>
-				{/if}
-				<span>Modificado em {formatMeta(data.mtime)}</span>
-				{#if data.frontmatter.public}
-					<span class="sep">·</span>
-					<span class="public-badge">público</span>
-				{/if}
+		<article class="article-scroll">
+			<div class="meta-row">
 				{#if data.frontmatter.formal}
-					<span class="sep">·</span>
-					<span class="formal-badge">{data.frontmatter.doctype ?? 'documento formal'}</span>
+					<span class="meta-chip">{data.frontmatter.doctype ?? 'documento formal'}</span>
+				{/if}
+				{#if data.frontmatter.public}
+					<span class="meta-chip">público</span>
 				{/if}
 				{#if data.frontmatter.version}
-					<span class="sep">·</span>
 					<span>v{data.frontmatter.version}</span>
 				{/if}
-				{#if data.frontmatter.tags?.length}
-					<span class="sep">·</span>
-					<div class="footer-tags">
-						{#each data.frontmatter.tags as tag}
-							<a href="/?tag={encodeURIComponent(tag)}" class="footer-tag">{tag}</a>
-						{/each}
+				{#if data.frontmatter.date}
+					<span class="meta-dot">·</span>
+					<time>{formatMeta(data.frontmatter.date)}</time>
+				{/if}
+			</div>
+
+			<h1 class="doc-title">{data.title}</h1>
+
+			{#if data.frontmatter.description}
+				<p class="doc-deck">{data.frontmatter.description}</p>
+			{/if}
+
+			<div class="doc-byline">
+				{#if data.frontmatter.author}
+					<div class="byline-field">
+						<span class="byline-key">Autor</span>
+						<span>{data.frontmatter.author}</span>
 					</div>
 				{/if}
-			</footer>
+				<div class="byline-field">
+					<span class="byline-key">Modificado</span>
+					<span>{formatMeta(data.mtime)}</span>
+				</div>
+				<div class="byline-field">
+					<span class="byline-key">Leitura</span>
+					<span>{data.wordCount.toLocaleString('pt-BR')} palavras · {data.readMinutes} min</span>
+				</div>
+				{#if data.frontmatter.tags?.length}
+					<div class="byline-field">
+						<span class="byline-key">Tags</span>
+						<span class="byline-tags">
+							{#each data.frontmatter.tags as tag}
+								<a href="/?tag={encodeURIComponent(tag)}" class="byline-tag">{tag}</a>
+							{/each}
+						</span>
+					</div>
+				{/if}
+			</div>
+
+			<!-- svelte-ignore a11y_mouse_events_have_key_events -->
+			<!-- We pair onmouseover with onfocusin (not onfocus) so the handler
+			     catches keyboard navigation into any descendant .cite-link
+			     without attaching listeners to every anchor. The rule doesn't
+			     recognize focusin as the focus equivalent, hence the ignore. -->
+			<div
+				class="prose doc-body"
+				onmouseover={onBodyMouseOver}
+				onfocusin={onBodyMouseOver}
+				role="presentation"
+			>
+				{@html data.html}
+			</div>
 		</article>
+
+		{#if data.toc.length > 2}
+			<aside class="toc-rail" bind:this={tocRailEl}>
+				<p class="toc-head">Índice</p>
+				<ol class="toc-list">
+					{#each data.toc as entry}
+						<li class="toc-level-{entry.level}" class:is-active={entry.id === activeTocId}>
+							<a href="#{entry.id}">{entry.text}</a>
+						</li>
+					{/each}
+				</ol>
+			</aside>
+		{/if}
 	</div>
 </div>
 
+<!-- Floating jump-to-top affordance. Appears after ~one viewport of
+     scroll; clicking smooth-scrolls to page zero. Keyed on showBackToTop
+     so it fades in/out rather than popping. -->
+<button
+	type="button"
+	class="back-to-top"
+	class:is-visible={showBackToTop}
+	onclick={scrollToTop}
+	aria-label="Voltar ao topo"
+	title="Voltar ao topo"
+	tabindex={showBackToTop ? 0 : -1}
+>
+	<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+		<path d="M8 13V3M3 7l5-4 5 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+	</svg>
+</button>
+
+<PdfPreviewModal
+	open={previewOpen}
+	slug={data.slug}
+	wsId={data.ws.id}
+	onClose={() => (previewOpen = false)}
+/>
+
 <style>
-	/* ── Layout ── */
-	.doc-page {
+	.atelier {
 		min-height: 100vh;
-		background: #fafaf8;
+		background: var(--bg);
+		color: var(--ink);
 	}
 
-	.site-header {
-		background: #fff;
-		border-bottom: 1px solid #e0ddd5;
+	/* ══════════════════════════════════════
+	   Top bar
+	═══════════════════════════════════════ */
+	.top-bar {
 		position: sticky;
 		top: 0;
-		z-index: 20;
+		z-index: 40;
+		border-bottom: 1px solid var(--rule);
 	}
 
-	.header-inner {
-		max-width: 1400px;
+	/* The frosted-glass background lives on a pseudo-element so
+	   backdrop-filter doesn't create a containing block for fixed
+	   descendants in Chromium — otherwise our mobile bottom nav (fixed
+	   inside .actions) would anchor to the top bar's edge. */
+	.top-bar::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		background: color-mix(in oklab, var(--bg) 88%, transparent);
+		backdrop-filter: saturate(1.2) blur(10px);
+		-webkit-backdrop-filter: saturate(1.2) blur(10px);
+		z-index: -1;
+	}
+
+	.top-bar-inner {
+		max-width: 1520px;
 		margin: 0 auto;
-		padding: 1.1rem 2rem;
-		display: flex;
+		padding: 0 28px;
+		height: 56px;
+		display: grid;
+		grid-template-columns: 260px 1fr auto;
 		align-items: center;
-		gap: 1rem;
+		gap: 24px;
 	}
 
-	:global(.header-inner .search-wrap) {
-		flex: 1;
+	.brand {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		font-family: var(--font-serif-display);
+		font-size: 20px;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		color: var(--ink);
 		min-width: 0;
 	}
 
-	.back-link {
-		font-size: 0.85rem;
-		color: #888;
-		text-decoration: none;
-		font-family: ui-sans-serif, system-ui, sans-serif;
+	.brand-sep { color: var(--ink-muted); font-weight: 400; }
+
+	.breadcrumb {
+		font-family: var(--font-sans);
+		font-size: 13px;
+		color: var(--ink-soft);
+		overflow: hidden;
+		text-overflow: ellipsis;
 		white-space: nowrap;
-		transition: color 0.1s;
-		flex-shrink: 0;
 	}
 
-	.back-link:hover { color: #1a1a1a; }
-	.back-short { display: none; }
-
-	.header-actions {
+	.actions {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		flex-shrink: 0;
-		position: relative;
+		gap: 6px;
 	}
-
-	.extras {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-	}
-
-	.menu-toggle { display: none; }
 
 	.action-btn {
-		background: #f5f3ee;
-		color: #555;
-		text-decoration: none;
-		padding: 0.4rem 0.75rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		height: 32px;
+		padding: 0 10px;
+		background: transparent;
+		border: 1px solid transparent;
 		border-radius: 6px;
-		font-size: 0.8rem;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-		white-space: nowrap;
-		transition: background 0.15s;
-		border: 1px solid #e0ddd5;
+		font-size: 13px;
+		color: var(--ink-soft);
+		font-family: var(--font-sans);
 	}
 
-	.action-btn:hover { background: #ebe8e0; }
+	.action-btn:hover {
+		background: var(--surface);
+		border-color: var(--rule);
+		color: var(--ink);
+	}
 
-	.pdf-btn {
-		border-color: #c7b8f5;
-		color: #5b21b6;
-		background: #f5f3ff;
-		cursor: pointer;
-		display: flex;
-		align-items: center;
-		gap: 0.3rem;
-		min-width: 4.5rem;
+	.action-btn.primary {
+		background: var(--ink);
+		color: var(--bg);
+		border-color: var(--ink);
+	}
+
+	.action-btn.primary:hover {
+		background: oklch(0.3 0.015 80);
+		border-color: transparent;
+	}
+
+	.action-btn.icon-btn {
+		width: 32px;
+		padding: 0;
 		justify-content: center;
 	}
 
-	.pdf-btn:hover:not(:disabled) { background: #ede9fe; }
-	.pdf-btn:disabled { opacity: 0.7; cursor: not-allowed; }
-
-	.pdf-spinner {
-		width: 0.7rem;
-		height: 0.7rem;
-		border: 1.5px solid #c7b8f5;
-		border-top-color: #5b21b6;
-		border-radius: 50%;
-		animation: spin 0.7s linear infinite;
-		flex-shrink: 0;
+	.action-btn.icon-btn.is-active {
+		background: var(--accent-soft);
+		color: var(--accent-ink);
+		border-color: transparent;
 	}
 
-	@keyframes spin { to { transform: rotate(360deg); } }
+	.more-wrap { position: relative; }
+	.more-btn { width: 32px; padding: 0; justify-content: center; font-size: 18px; line-height: 0; }
 
-	.public-link-btn {
-		border-color: #bbf7d0;
-		color: #166534;
-		background: #f0fdf4;
-		cursor: pointer;
-		min-width: 5.5rem;
-		transition: background 0.15s, color 0.15s;
-	}
-
-	.public-link-btn:hover { background: #dcfce7; }
-
-	.edit-btn {
-		background: #1a1a1a;
-		color: #fff;
-		text-decoration: none;
-		padding: 0.4rem 0.85rem;
-		border-radius: 6px;
-		font-size: 0.85rem;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-		white-space: nowrap;
-		transition: background 0.15s;
-	}
-
-	.edit-btn:hover { background: var(--brand); }
-
-	.delete-btn {
-		background: none;
-		border: 1px solid #e8e5df;
-		color: #aaa;
-		padding: 0.4rem 0.75rem;
-		border-radius: 6px;
-		font-size: 0.85rem;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-		cursor: pointer;
-		transition: all 0.15s;
-	}
-
-	.delete-btn:hover {
-		background: #fee2e2;
-		border-color: #fca5a5;
-		color: #b91c1c;
-	}
-
-	/* ── Metadata footer ── */
-	.article-footer {
-		margin-top: 3rem;
-		padding-top: 1rem;
-		border-top: 1px solid #e8e5df;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-		font-size: 0.8rem;
-		color: #aaa;
+	.more-menu {
+		position: absolute;
+		top: calc(100% + 6px);
+		right: 0;
+		min-width: 180px;
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		border-radius: 8px;
+		box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.2);
+		padding: 4px;
 		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem;
-		align-items: center;
+		flex-direction: column;
+		z-index: 30;
 	}
 
-	.article-footer .sep { color: #ddd; }
-
-	.footer-tags {
-		display: flex;
-		gap: 0.3rem;
-		flex-wrap: wrap;
+	.more-menu hr {
+		border: 0;
+		border-top: 1px solid var(--rule-soft);
+		margin: 4px 2px;
 	}
 
-	.footer-tag {
-		background: #f0ede6;
-		color: #555;
-		padding: 0.1em 0.55em;
-		border-radius: 999px;
-		font-size: 0.72rem;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-		text-decoration: none;
-		transition: background 0.1s, color 0.1s;
-		line-height: 1.6;
+	.more-item {
+		padding: 6px 10px;
+		border-radius: 4px;
+		font-size: 13px;
+		color: var(--ink-soft);
+		text-align: left;
+		background: transparent;
+		border: 0;
+		font-family: var(--font-sans);
 	}
 
-	.footer-tag:hover {
-		background: #1a1a1a;
-		color: #fff;
-	}
+	.more-item:hover { background: var(--bg-deep); color: var(--ink); }
+	.more-item.danger { color: oklch(0.5 0.18 25); }
+	.more-item.danger:hover { background: oklch(0.95 0.03 25); }
 
-	.article-footer .public-badge {
-		background: #dcfce7;
-		color: #166534;
-		padding: 0.1em 0.5em;
-		border-radius: 999px;
-		font-size: 0.72rem;
-		font-weight: 500;
-	}
-
-	.article-footer .formal-badge {
-		background: #ede9fe;
-		color: #5b21b6;
-		padding: 0.1em 0.5em;
-		border-radius: 999px;
-		font-size: 0.72rem;
-		font-weight: 500;
-	}
-
-	.doc-layout {
-		max-width: 900px;
+	/* ══════════════════════════════════════
+	   Layout
+	═══════════════════════════════════════ */
+	.layout {
+		max-width: 1520px;
 		margin: 0 auto;
-		padding: 2.5rem 2rem 4rem;
+		padding: 0 28px;
 		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 3rem;
+		grid-template-columns: 260px minmax(0, 1fr) 240px;
+		gap: 48px;
+		align-items: start;
 	}
 
-	@media (min-width: 900px) {
-		.doc-layout:has(.toc) {
-			grid-template-columns: 200px minmax(0, 1fr);
-		}
+	/* Explicit column placement keeps the article in the center column
+	   regardless of which rails are rendered. Missing rails leave their
+	   columns empty (260px on the left, 240px on the right) so the
+	   article's horizontal position is stable across doc types — a plain
+	   argos doc centers at the same place as an academic one with cited
+	   works in the margin. */
+	.left-rail { grid-column: 1; }
+	.article-scroll { grid-column: 2; }
+	.toc-rail { grid-column: 3; }
+
+	/* No-left case: drop the outer max-width cap and make the grid
+	   flexible. The left "margin" column stretches or shrinks so the
+	   article column can reach its full --reading-width (1200px) on wide
+	   viewports but gracefully degrades on narrow ones. Without this the
+	   1520px cap + rigid 260px left slot silently capped the article at
+	   ~800px regardless of how large we set --reading-width. */
+	.layout.no-left {
+		--reading-width: 1200px;
+		max-width: 1800px;
+		grid-template-columns: minmax(40px, 1fr) minmax(0, var(--reading-width)) 240px;
 	}
 
-	/* ── TOC ── */
-	.toc {
+	.left-rail {
 		position: sticky;
-		top: 2rem;
-		align-self: start;
-		font-family: ui-sans-serif, system-ui, sans-serif;
-		padding-top: 0.25rem;
+		top: 72px;
+		max-height: calc(100vh - 88px);
+		overflow-y: auto;
+		padding: 28px 0 40px;
+		font-family: var(--font-sans);
+		font-size: 12.5px;
+		display: flex;
+		flex-direction: column;
+		gap: 28px;
 	}
 
-	.toc-heading {
-		font-size: 0.7rem;
+	.left-rail .rail-head {
+		font-family: var(--font-sans);
+		font-size: 10.5px;
 		font-weight: 600;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.14em;
 		text-transform: uppercase;
-		color: #aaa;
-		margin: 0 0 0.75rem;
+		color: var(--ink-muted);
+		margin: 0 0 10px;
+		padding-left: 12px;
+	}
+
+	/* Na margem — one card per cited work, promoted to active on hover
+	   and by the body scroll-spy. */
+	.marg-list {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+
+	.marg-card {
+		border-left: 2px solid transparent;
+		transition: background 0.18s, border-color 0.18s;
+	}
+
+	.marg-card.is-active {
+		background: var(--accent-soft);
+		border-left-color: var(--accent);
+	}
+
+	.marg-link {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 8px 12px;
+		color: var(--ink);
+		line-height: 1.4;
+	}
+
+	.marg-kind {
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--ink-muted);
+	}
+
+	.marg-card.is-active .marg-kind { color: var(--accent-ink); }
+
+	.marg-label {
+		font-family: var(--font-sans);
+		font-size: 12.5px;
+		font-weight: 500;
+		color: var(--ink);
+	}
+
+	.marg-title {
+		font-family: var(--font-serif-body);
+		font-style: italic;
+		font-size: 12.5px;
+		color: var(--ink-soft);
+		text-wrap: pretty;
+	}
+
+	/* Backlinks — inbound wiki-links. Moved from the article bottom. */
+	.backlinks {
+		padding-top: 4px;
+	}
+
+	.backlinks-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.backlinks-list a {
+		display: block;
+		padding: 5px 12px;
+		border-radius: 4px;
+		color: var(--ink-soft);
+		font-size: 12.5px;
+		transition: color 0.15s, background 0.15s;
+	}
+
+	.backlinks-list a:hover {
+		background: var(--bg-deep);
+		color: var(--ink);
+	}
+
+	.article-scroll {
+		padding: 48px 0 120px;
+		min-width: 0;
+	}
+
+	.toc-rail {
+		position: sticky;
+		top: 72px;
+		padding: 52px 0 40px;
+		max-height: calc(100vh - 80px);
+		overflow-y: auto;
+		font-size: 12.5px;
+		line-height: 1.5;
+	}
+
+	/* ══════════════════════════════════════
+	   Article header
+	═══════════════════════════════════════ */
+	.meta-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		font-family: var(--font-sans);
+		font-size: 12px;
+		color: var(--ink-muted);
+		margin-bottom: 18px;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+	}
+
+	.meta-chip {
+		padding: 3px 8px;
+		background: var(--chip-bg);
+		border-radius: 999px;
+		letter-spacing: 0.08em;
+	}
+
+	.meta-dot { color: var(--ink-muted); }
+
+	.doc-title {
+		font-family: var(--font-serif-display);
+		font-size: 56px;
+		font-weight: 500;
+		letter-spacing: -0.02em;
+		line-height: 1.02;
+		/* opsz 120 pushes Fraunces into its display range — hairlines go
+		   thin, the thick/thin contrast ramps up, and the serifs sharpen
+		   into the Didone look the prototype shows. SOFT axis omitted so
+		   the stems stay squared. */
+		font-variation-settings: 'opsz' 120;
+		margin: 0 0 6px;
+		max-width: var(--reading-width);
+		text-wrap: balance;
+	}
+
+	.doc-deck {
+		font-family: var(--font-serif-body);
+		font-size: 20px;
+		line-height: 1.45;
+		color: var(--ink-soft);
+		max-width: var(--reading-width);
+		font-style: italic;
+		font-weight: 400;
+		margin: 0 0 32px;
+		text-wrap: pretty;
+	}
+
+	.doc-byline {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 24px;
+		align-items: baseline;
+		padding: 14px 0;
+		border-top: 1px solid var(--rule);
+		border-bottom: 1px solid var(--rule);
+		font-size: 13px;
+		color: var(--ink-soft);
+		margin-bottom: 40px;
+		max-width: var(--reading-width);
+	}
+
+	.byline-field { display: flex; flex-direction: column; gap: 2px; }
+
+	.byline-key {
+		font-family: var(--font-sans);
+		font-size: 10.5px;
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		color: var(--ink-muted);
+	}
+
+	.byline-tags { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+
+	.byline-tag {
+		padding: 1px 8px;
+		background: var(--chip-bg);
+		border-radius: 999px;
+		font-size: 12px;
+		color: var(--ink-soft);
+	}
+
+	.byline-tag:hover { background: var(--accent-soft); color: var(--accent-ink); }
+
+	/* ══════════════════════════════════════
+	   Prose — serif body, Atelier rhythm
+	═══════════════════════════════════════ */
+	:global(.prose.doc-body) {
+		max-width: var(--reading-width);
+		font-family: var(--font-serif-body);
+		font-size: 18px;
+		line-height: 1.65;
+		color: var(--ink);
+		font-variation-settings: 'opsz' 18;
+	}
+
+	:global(.prose.doc-body h1) { display: none; }
+
+	:global(.prose.doc-body h2) {
+		font-family: var(--font-serif-display);
+		font-weight: 500;
+		font-size: 32px;
+		letter-spacing: -0.015em;
+		line-height: 1.15;
+		margin: 72px 0 20px;
+		scroll-margin-top: 80px;
+		font-variation-settings: 'opsz' 60;
+		color: var(--ink);
+	}
+
+	:global(.prose.doc-body h2::before) {
+		content: '§';
+		color: var(--ink-muted);
+		font-size: 22px;
+		margin-right: 10px;
+		font-weight: 400;
+		vertical-align: 2px;
+	}
+
+	:global(.prose.doc-body h3) {
+		font-family: var(--font-serif-display);
+		font-weight: 600;
+		font-size: 21px;
+		line-height: 1.25;
+		margin: 40px 0 12px;
+		scroll-margin-top: 80px;
+		color: var(--ink);
+	}
+
+	:global(.prose.doc-body h4) {
+		font-family: var(--font-sans);
+		font-size: 13px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--ink-soft);
+		margin: 28px 0 10px;
+	}
+
+	:global(.prose.doc-body p) {
+		margin: 0 0 18px;
+		text-wrap: pretty;
+	}
+
+	:global(.prose.doc-body ul), :global(.prose.doc-body ol) {
+		margin: 0 0 22px;
+		padding-left: 1.4em;
+	}
+
+	:global(.prose.doc-body li) { margin-bottom: 6px; }
+	:global(.prose.doc-body ul li::marker) { color: var(--ink-muted); }
+
+	:global(.prose.doc-body strong) {
+		font-weight: 600;
+		color: var(--ink);
+		font-variation-settings: 'opsz' 18, 'wght' 620;
+	}
+
+	:global(.prose.doc-body em) { font-style: italic; }
+
+	:global(.prose.doc-body a) {
+		color: var(--accent-ink);
+		border-bottom: 1px solid var(--accent-soft);
+		transition: border-color 0.15s, color 0.15s;
+	}
+
+	:global(.prose.doc-body a:hover) {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+	}
+
+	:global(.prose.doc-body a.wiki-link) {
+		color: var(--accent-ink);
+		background: var(--accent-soft);
+		padding: 1px 6px;
+		border-radius: 3px;
+		border: 0;
+	}
+
+	:global(.prose.doc-body hr) {
+		border: 0;
+		border-top: 1px solid var(--rule);
+		margin: 40px 0;
+	}
+
+	:global(.prose.doc-body blockquote) {
+		margin: 24px 0;
+		padding: 4px 20px;
+		border-left: 3px solid var(--accent);
+		color: var(--ink-soft);
+		font-style: italic;
+	}
+
+	/* Inline code */
+	:global(.prose.doc-body :not(pre) > code) {
+		font-family: var(--font-mono);
+		font-size: 0.84em;
+		padding: 1px 6px;
+		background: var(--code-bg);
+		border: 1px solid var(--rule-soft);
+		border-radius: 4px;
+		color: var(--code-ink);
+		white-space: nowrap;
+	}
+
+	/* Code block — dark slab with a subtle chrome bar on top */
+	:global(.prose.doc-body pre) {
+		margin: 24px 0 28px;
+		padding: 0;
+		background: oklch(0.24 0.012 82);
+		border-radius: 10px;
+		overflow: hidden;
+		position: relative;
+		font-family: var(--font-mono);
+		font-size: 13px;
+		line-height: 1.55;
+		color: oklch(0.88 0.008 82);
+		max-width: calc(var(--reading-width) + 120px);
+		border: 1px solid oklch(0.22 0.012 82);
+	}
+
+	:global(.prose.doc-body pre::before) {
+		content: '';
+		display: block;
+		height: 28px;
+		background: oklch(0.2 0.012 82);
+		border-bottom: 1px solid oklch(0.3 0.012 82);
+	}
+
+	:global(.prose.doc-body pre > code) {
+		display: block;
+		padding: 14px 18px 18px;
+		background: transparent;
+		border: 0;
+		font-family: var(--font-mono);
+		font-size: 13px;
+		color: inherit;
+		white-space: pre;
+		overflow-x: auto;
+	}
+
+	/* Tables */
+	:global(.prose.doc-body .table-wrap) {
+		max-width: calc(var(--reading-width) + 120px);
+		margin: 20px 0 28px;
+		overflow-x: auto;
+	}
+
+	:global(.prose.doc-body table) {
+		width: 100%;
+		font-family: var(--font-sans);
+		font-size: 14px;
+		line-height: 1.45;
+		border-collapse: collapse;
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		border-radius: 8px;
+		overflow: hidden;
+	}
+
+	:global(.prose.doc-body th),
+	:global(.prose.doc-body td) {
+		padding: 10px 14px;
+		text-align: left;
+		vertical-align: top;
+		border-bottom: 1px solid var(--rule-soft);
+	}
+
+	:global(.prose.doc-body th) {
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--ink-soft);
+		background: var(--bg-deep);
+		border-bottom: 1px solid var(--rule);
+	}
+
+	:global(.prose.doc-body tr:last-child td) { border-bottom: 0; }
+
+	/* Mermaid */
+	:global(.prose.doc-body pre.mermaid) {
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		border-radius: 10px;
+		padding: 28px;
+		text-align: center;
+		max-width: calc(var(--reading-width) + 120px);
+	}
+
+	:global(.prose.doc-body pre.mermaid::before) { display: none; }
+	:global(.prose.doc-body pre.mermaid code) { padding: 0; }
+
+	/* Highlight from search */
+	:global(.text-highlight) {
+		background: color-mix(in oklab, var(--accent) 40%, transparent);
+		padding: 0 2px;
+		border-radius: 2px;
+	}
+
+	/* ══════════════════════════════════════
+	   TOC rail (right)
+	═══════════════════════════════════════ */
+	.toc-head {
+		font-family: var(--font-sans);
+		font-size: 10.5px;
+		font-weight: 600;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		color: var(--ink-muted);
+		margin: 0 0 12px;
+		padding-left: 12px;
 	}
 
 	.toc-list {
 		list-style: none;
-		margin: 0;
 		padding: 0;
-		border-left: 2px solid #e8e5df;
-	}
-
-	.toc-item {
 		margin: 0;
-		line-height: 1.4;
+		position: relative;
 	}
 
-	.toc-item a {
+	.toc-list::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		width: 1px;
+		background: var(--rule);
+	}
+
+	.toc-list li a {
 		display: block;
-		padding: 0.25rem 0 0.25rem 0.85rem;
-		font-size: 0.82rem;
-		color: #666;
-		text-decoration: none;
-		transition: color 0.1s;
-	}
-
-	.toc-item a:hover {
-		color: #1a1a1a;
-	}
-
-	.toc-level-2 a {
-		padding-left: 0.85rem;
-	}
-
-	.toc-level-3 a {
-		padding-left: 1.7rem;
-		font-size: 0.78rem;
-		color: #999;
-	}
-
-	/* ── Document body (pandoc-like) ── */
-	:global(.doc-body) {
-		font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, 'Times New Roman', serif;
-		font-size: 1.1rem;
-		line-height: 1.75;
-		color: #1a1a1a;
-		max-width: 720px;
-		overflow-wrap: break-word;
-	}
-
-	:global(.doc-body .table-wrap) {
-		overflow-x: auto;
-		max-width: 100%;
-		margin: 1.5em 0;
-	}
-	:global(.doc-body .table-wrap table) { margin: 0; }
-
-	:global(.doc-body h1) {
-		font-size: 2rem;
-		font-weight: 700;
-		line-height: 1.2;
-		margin: 0 0 0.25em;
-		border-bottom: 1px solid #e0ddd5;
-		padding-bottom: 0.4em;
-	}
-
-	:global(.doc-body h2) {
-		font-size: 1.45rem;
-		font-weight: 600;
-		margin: 2.2em 0 0.6em;
-		border-bottom: 1px solid #e8e5df;
-		padding-bottom: 0.25em;
-	}
-
-	:global(.doc-body h3) {
-		font-size: 1.2rem;
-		font-weight: 600;
-		margin: 1.8em 0 0.5em;
-	}
-
-	:global(.doc-body h4) {
-		font-size: 1rem;
-		font-weight: 600;
-		margin: 1.5em 0 0.4em;
-		font-style: italic;
-	}
-
-	:global(.doc-body p) {
-		margin: 0 0 1.1em;
-	}
-
-	:global(.doc-body a) {
-		color: var(--brand);
-		text-decoration: none;
-		border-bottom: 1px solid color-mix(in srgb, var(--brand) 25%, transparent);
-		transition: border-color 0.1s;
-	}
-
-	:global(.doc-body a:hover) {
-		border-bottom-color: var(--brand);
-	}
-
-	:global(.doc-body ul),
-	:global(.doc-body ol) {
-		padding-left: 2em;
-		margin: 0 0 1.1em;
-	}
-
-	:global(.doc-body li) {
-		margin-bottom: 0.3em;
-	}
-
-	:global(.doc-body li > p) {
-		margin-bottom: 0.5em;
-	}
-
-	:global(.doc-body blockquote) {
-		margin: 1.5em 0;
-		padding: 0.1em 0 0.1em 1.25em;
-		border-left: 4px solid #d1c9b0;
-		color: #555;
-		font-style: italic;
-	}
-
-	:global(.doc-body blockquote p) {
-		margin-bottom: 0.5em;
-	}
-
-	:global(.doc-body code) {
-		font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
-		font-size: 0.875em;
-		background: #f5f2eb;
-		padding: 0.15em 0.35em;
-		border-radius: 3px;
-		color: #b5470d;
-	}
-
-	:global(.doc-body pre) {
-		background: #1e1e1e;
-		border-radius: 6px;
-		padding: 1.1em 1.3em;
-		overflow-x: auto;
-		max-width: 100%;
-		margin: 1.5em 0;
+		padding: 3px 12px;
+		color: var(--ink-muted);
+		border-left: 2px solid transparent;
+		margin-left: -1px;
+		transition: color 0.15s, border-color 0.15s;
+		font-family: var(--font-sans);
+		font-size: 12.5px;
 		line-height: 1.5;
 	}
 
-	:global(.doc-body pre.mermaid) {
-		background: #ffffff;
-		border: 1px solid #e0ddd5;
-		padding: 1.5em 1em;
+	.toc-list li a:hover { color: var(--ink); }
+
+	.toc-list li.is-active > a {
+		color: var(--accent-ink);
+		border-left-color: var(--accent);
+		font-weight: 500;
 	}
 
-	:global(.doc-body pre code) {
-		background: none;
-		padding: 0;
-		color: #d4d4d4;
-		font-size: 0.85rem;
-		border-radius: 0;
+	.toc-list .toc-level-1 { display: none; }
+	.toc-list .toc-level-2 > a { font-weight: 500; color: var(--ink-soft); }
+	.toc-list .toc-level-3 > a { padding-left: 24px; font-size: 12px; }
+	.toc-list .toc-level-4 > a { padding-left: 36px; font-size: 12px; }
+
+	/* Inline citation chips inside the prose body. The engine emits
+	   <span class="cite cite-{style}"><a class="cite-link" href="#ref-x">…</a></span>
+	   for each group. Keep the chip subtle — the author-year or [N]
+	   carries the signal; we just make it clickable and distinct. */
+	:global(.prose.doc-body .cite) {
+		color: var(--accent-ink);
+		font-variant-numeric: lining-nums tabular-nums;
 	}
 
-	:global(.doc-body table) {
-		width: 100%;
-		border-collapse: collapse;
-		margin: 1.5em 0;
-		font-size: 0.95em;
-	}
-
-	:global(.doc-body th) {
-		background: #f5f2eb;
-		font-weight: 600;
-		text-align: left;
-		padding: 0.5em 0.85em;
-		border: 1px solid #d1c9b0;
-	}
-
-	:global(.doc-body td) {
-		padding: 0.45em 0.85em;
-		border: 1px solid #e0ddd5;
-	}
-
-	:global(.doc-body tr:nth-child(even) td) {
-		background: #faf9f5;
-	}
-
-	:global(.doc-body hr) {
-		border: none;
-		border-top: 1px solid #e0ddd5;
-		margin: 2.5em 0;
-	}
-
-	:global(.doc-body img) {
-		max-width: 100%;
-		height: auto;
-		border-radius: 4px;
-	}
-
-	/* ── Highlight.js theme (light) ── */
-	:global(.hljs) { color: #abb2bf; }
-	:global(.hljs-keyword, .hljs-selector-tag, .hljs-built_in) { color: #c678dd; }
-	:global(.hljs-string, .hljs-attr) { color: #98c379; }
-	:global(.hljs-number, .hljs-literal) { color: #d19a66; }
-	:global(.hljs-comment) { color: #5c6370; font-style: italic; }
-	:global(.hljs-title, .hljs-section) { color: #61afef; }
-	:global(.hljs-type, .hljs-class) { color: #e5c07b; }
-	:global(.hljs-variable, .hljs-name) { color: #e06c75; }
-	:global(.hljs-tag) { color: #e06c75; }
-	:global(.hljs-meta) { color: #56b6c2; }
-	:global(.hljs-symbol, .hljs-bullet) { color: #56b6c2; }
-
-	/* ── Citation highlight ── */
-	:global(.text-highlight) {
-		background: #fef08a;
-		border-radius: 2px;
-		padding: 0.05em 0.1em;
-		outline: 2px solid #fbbf24;
-		outline-offset: 1px;
-	}
-
-	/* ── Wiki links ── */
-	:global(.wiki-link) {
-		color: #7c3aed;
-		border-bottom: 1px dashed #c4b5fd;
-		font-style: italic;
+	:global(.prose.doc-body .cite-link) {
+		color: inherit;
+		border-bottom: 1px dotted var(--accent-soft);
 		text-decoration: none;
+		transition: border-color 0.15s;
 	}
 
-	:global(.wiki-link:hover) {
-		border-bottom-color: #7c3aed;
+	:global(.prose.doc-body .cite-link:hover) {
+		border-bottom-color: var(--accent);
 	}
 
-	/* ── Backlinks panel ── */
-	.backlinks-list {
+	/* Smooth-scroll the reference target into view clear of the sticky
+	   top bar. scroll-margin-top is load-bearing — without it #ref-foo
+	   jumps land behind the 56px header. */
+	:global(.prose.doc-body .reference-entry) {
+		scroll-margin-top: 88px;
+	}
+
+	/* Auto-generated references section — slightly darker rule on top so
+	   it visually separates from the final body paragraph. */
+	:global(.prose.doc-body .references-section) {
+		margin-top: 56px;
+		padding-top: 24px;
+		border-top: 1px solid var(--rule);
+	}
+
+	:global(.prose.doc-body .references-heading) {
+		font-family: var(--font-serif-display);
+		font-size: 20px;
+		font-weight: 500;
+		letter-spacing: -0.01em;
+		margin: 0 0 20px;
+		color: var(--ink);
+	}
+
+	:global(.prose.doc-body .references-list) {
+		list-style: none;
+		padding-left: 0;
+		margin: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.35rem;
+		gap: 10px;
 	}
 
-	.backlink-chip {
-		display: inline-block;
-		padding: 0.2em 0.6em;
-		background: #f5f2ff;
-		border: 1px solid #ddd6fe;
-		border-radius: 4px;
-		font-size: 0.75rem;
-		font-family: ui-monospace, monospace;
-		color: #7c3aed;
-		text-decoration: none;
-		transition: background 0.1s, border-color 0.1s;
+	:global(.prose.doc-body .references-list li) {
+		font-size: 14px;
+		line-height: 1.55;
+		color: var(--ink-soft);
 	}
 
-	.backlink-chip:hover {
-		background: #ede9fe;
-		border-color: #c4b5fd;
+	/* Smooth anchor scrolling across the app so cite clicks glide. */
+	:global(html) { scroll-behavior: smooth; }
+
+	/* ══════════════════════════════════════
+	   Search slot — Search component sits center
+	═══════════════════════════════════════ */
+	:global(.top-bar-inner .search-wrap) {
+		justify-self: center;
+		width: 100%;
+		max-width: 520px;
 	}
 
+	/* ══════════════════════════════════════
+	   Back-to-top — fixed bottom-right, out of the article's reading
+	   path and clear of the top bar. Slides left to avoid the AI dock
+	   when it's open (body gets padding-right: 380px, but fixed
+	   elements don't inherit that, so we reposition manually).
+	═══════════════════════════════════════ */
+	.back-to-top {
+		position: fixed;
+		bottom: 24px;
+		right: 24px;
+		width: 38px;
+		height: 38px;
+		display: grid;
+		place-items: center;
+		border-radius: 50%;
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		color: var(--ink-soft);
+		box-shadow: 0 8px 22px -10px rgba(0, 0, 0, 0.28);
+		cursor: pointer;
+		z-index: 50;
+		opacity: 0;
+		transform: translateY(8px) scale(0.92);
+		pointer-events: none;
+		transition: opacity 0.18s, transform 0.18s, right 0.28s cubic-bezier(0.2, 0.7, 0.2, 1), color 0.15s, border-color 0.15s;
+	}
+
+	.back-to-top.is-visible {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+		pointer-events: auto;
+	}
+
+	.back-to-top:hover {
+		color: var(--accent-ink);
+		border-color: var(--accent);
+	}
+
+	:global(body.ai-open) .back-to-top { right: calc(380px + 24px); }
+
+	/* ══════════════════════════════════════
+	   Responsive
+	═══════════════════════════════════════ */
+	@media (max-width: 1200px) {
+		.layout {
+			grid-template-columns: 220px minmax(0, 1fr);
+			padding: 0 20px;
+			gap: 32px;
+		}
+		.layout.no-left { grid-template-columns: minmax(0, 1fr); }
+		.left-rail { grid-column: 1; }
+		.article-scroll { grid-column: 2; }
+		.layout.no-left .article-scroll { grid-column: 1; }
+		.toc-rail { display: none; }
+	}
+
+	@media (max-width: 860px) {
+		.layout { grid-template-columns: minmax(0, 1fr); }
+		.article-scroll { grid-column: 1; }
+		.left-rail { display: none; }
+		.top-bar-inner {
+			grid-template-columns: auto 1fr auto;
+			height: auto;
+			padding: 10px 14px;
+			gap: 10px;
+		}
+		.doc-title { font-size: 40px; }
+	}
+
+	/* ══════════════════════════════════════
+	   Mobile bottom nav — same pattern as the home route. The viewer's
+	   actions cluster (AI toggle, PDF, Editar, kebab, UserMenu) moves
+	   from the top bar's right slot to a fixed bottom bar.
+	═══════════════════════════════════════ */
 	@media (max-width: 640px) {
-		.header-inner {
-			padding: 0.65rem 0.9rem;
-			gap: 0.5rem;
-			flex-wrap: wrap;
-		}
-		:global(.header-inner .search-wrap) { order: 10; flex-basis: 100%; }
+		.atelier { padding-bottom: 68px; }
 
-		.back-full { display: none; }
-		.back-short { display: inline; font-size: 1.1rem; line-height: 1; }
+		/* `.actions` goes fixed below → collapse the top bar to 2 cols
+		   so the search field gets the full remaining width. */
+		.top-bar-inner { grid-template-columns: auto minmax(0, 1fr); }
+		.brand { min-width: 0; flex-shrink: 1; }
+		.brand :global(.brand-text) { display: none; }
+		.breadcrumb { max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-		.header-actions { margin-left: auto; }
-
-		.extras {
-			display: none;
-		}
-		.extras.menu-open {
-			display: flex;
-			flex-direction: column;
-			align-items: stretch;
-			position: absolute;
-			top: calc(100% + 0.5rem);
+		.actions {
+			position: fixed;
+			left: 0;
 			right: 0;
-			background: #fff;
-			border: 1px solid #e0ddd5;
-			border-radius: 8px;
-			box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-			padding: 0.4rem;
-			gap: 0.25rem;
-			z-index: 50;
-			min-width: 10rem;
-		}
-		.extras.menu-open .action-btn,
-		.extras.menu-open .delete-btn {
-			text-align: left;
-			width: 100%;
-		}
-		.menu-toggle {
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			background: #f5f3ee;
-			border: 1px solid #e0ddd5;
-			color: #555;
-			font-size: 1.1rem;
-			line-height: 1;
-			padding: 0.4rem 0.7rem;
-			border-radius: 6px;
-			cursor: pointer;
-			flex-shrink: 0;
-			min-width: 2.4rem;
-			min-height: 2.2rem;
+			bottom: 0;
+			padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+			background: var(--bg);
+			border-top: 1px solid var(--rule);
+			justify-content: space-around;
+			gap: 2px;
+			z-index: 40;
+			box-shadow: 0 -12px 24px -16px rgba(0, 0, 0, 0.12);
 		}
 
-		.doc-layout {
-			padding: 1.5rem 1rem 6rem;
-			gap: 2rem;
+		/* "Editar" loses its text label on mobile — the pencil-like
+		   accent background is the recognizable affordance. */
+		.action-btn.primary { padding: 0 14px; height: 36px; }
+
+		/* Pop back-to-top above the nav AND flip to the left edge so it
+		   doesn't collide with the upward-opening UserMenu dropdown
+		   (which pops from the rightmost button in .actions). */
+		.back-to-top {
+			bottom: calc(68px + 16px);
+			left: 24px;
+			right: auto;
 		}
 
-		.toc { position: static; }
-		.toc-list { border-left: none; border-top: 2px solid #e8e5df; padding-top: 0.5rem; }
-		.toc-item a { padding: 0.35rem 0; }
-		.toc-level-2 a, .toc-level-3 a { padding-left: 0.25rem; }
+		/* Triggers sit at viewport bottom → menus must open upward
+		   or they render off-screen. Kebab `.more-menu` is local; the
+		   UserMenu `.dropdown` is scoped to its own component, so
+		   :global() is required to pierce Svelte's scoping. */
+		.more-menu {
+			top: auto;
+			bottom: calc(100% + 6px);
+			transform-origin: bottom right;
+		}
 
-		:global(.doc-body) { font-size: 1rem; }
-		:global(.doc-body h1) { font-size: 1.5rem; }
-		:global(.doc-body h2) { font-size: 1.25rem; }
-		:global(.doc-body h3) { font-size: 1.1rem; }
+		.actions :global(.dropdown) {
+			top: auto;
+			bottom: calc(100% + 0.5rem);
+			transform-origin: bottom right;
+		}
 	}
 </style>

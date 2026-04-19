@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { renderMarkdown } from '$lib/markdown';
-import { renderPdf } from '$lib/server/pdf';
+import { renderPdf, type CommonMeta } from '$lib/server/pdf';
 import { getDoc } from '$lib/server/docsIndex';
 import { DEFAULT_WS_ID } from '$lib/server/workspaces';
 import { readBranding } from '$lib/branding';
@@ -22,6 +22,57 @@ td{padding:.45em .85em;border:1px solid #e0ddd5}
 hr{border:none;border-top:1px solid #e0ddd5;margin:2.5em 0}
 img{max-width:100%;border-radius:4px}
 `;
+
+type Frontmatter = ReturnType<typeof renderMarkdown>['frontmatter'];
+
+/** Cross-template metadata pulled from the top level of frontmatter. */
+function buildCommonMeta(slug: string, origin: string, frontmatter: Frontmatter, title: string): CommonMeta {
+	// QR code targets the public link; only makes sense when the doc is both
+	// marked public AND the author asked for a QR. Argos is the only template
+	// that renders the code today, but the field is cross-template because
+	// other templates may pick it up later.
+	const docUrl = (frontmatter.public && frontmatter.qrCode)
+		? `${origin}/public/${slug}`
+		: undefined;
+	return {
+		title,
+		author: frontmatter.author,
+		date: frontmatter.date,
+		description: frontmatter.description,
+		tags: frontmatter.tags,
+		docUrl
+	};
+}
+
+/**
+ * Template-specific options live under a sub-key matching the template id
+ * (`argos:`, `acm:`, `ieee:`, `abnt:`). For argos only, we fall back to the
+ * flat legacy keys so docs written before this refactor keep working.
+ */
+function readTemplateOptions(
+	templateId: string,
+	frontmatter: Frontmatter
+): Record<string, unknown> {
+	const nested = (frontmatter as unknown as Record<string, unknown>)[templateId];
+	if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+		return nested as Record<string, unknown>;
+	}
+	if (templateId === 'argos') {
+		// Legacy flat shape — pre-namespace docs.
+		return {
+			doctype: frontmatter.doctype,
+			cover: frontmatter.cover,
+			coverImage: frontmatter.coverImage,
+			version: frontmatter.version,
+			approvals: frontmatter.approvals,
+			confidential: frontmatter.confidential,
+			company: frontmatter.company,
+			footer: frontmatter.footer,
+			qrCode: frontmatter.qrCode
+		};
+	}
+	return {};
+}
 
 export const GET: RequestHandler = async ({ params, url }) => {
 	const { slug } = params;
@@ -45,38 +96,28 @@ export const GET: RequestHandler = async ({ params, url }) => {
 
 	const { html, toc, title, frontmatter } = renderMarkdown(source);
 
-	// PDF export — Puppeteer formal document
-	if (format === 'pdf') {
+	if (format === 'pdf' || format === 'pdf-preview') {
 		if (!frontmatter.formal) error(403, 'Apenas documentos formais podem ser exportados como PDF');
-		// QR code only when the doc is public AND has qrCode: true in frontmatter
-		const docUrl = (frontmatter.public && frontmatter.qrCode)
-			? `${url.origin}/public/${slug}`
-			: undefined;
-		const pdf = await renderPdf(
-			{
-				title,
-				author: frontmatter.author,
-				date: frontmatter.date,
-				version: frontmatter.version,
-				doctype: frontmatter.doctype,
-				tags: frontmatter.tags,
-				footer: frontmatter.footer,
-				approvals: frontmatter.approvals,
-				cover: frontmatter.cover,
-				coverImage: frontmatter.coverImage,
-				confidential: frontmatter.confidential,
-				company: frontmatter.company,
-				docUrl,
-			},
-			html,
-			toc,
-			wsId
-		);
+		// Precedence: ?template=… override (preview UI) → frontmatter.template → default.
+		const templateId = url.searchParams.get('template')
+			?? (typeof frontmatter.template === 'string' ? frontmatter.template : undefined);
+		const meta = buildCommonMeta(slug, url.origin, frontmatter, title);
+		const options = readTemplateOptions(templateId ?? 'argos', frontmatter);
+		const { pdf } = await renderPdf(meta, options, html, toc, wsId, { templateId });
+
+		// Preview uses `inline` so the iframe renders it in-page; the browser's
+		// native PDF viewer handles pagination, zoom, and text search — no
+		// need for custom nav UI on our side.
+		const disposition = format === 'pdf-preview'
+			? `inline; filename="${slug}-preview.pdf"`
+			: `attachment; filename="${slug}.pdf"`;
+
 		return new Response(new Uint8Array(pdf), {
 			headers: {
 				'Content-Type': 'application/pdf',
-				'Content-Disposition': `attachment; filename="${slug}.pdf"`,
-			},
+				'Content-Disposition': disposition,
+				'X-Frame-Options': 'SAMEORIGIN'
+			}
 		});
 	}
 
