@@ -74,6 +74,15 @@
 		// Keep query between openings — feels nicer when re-opening after a quick close.
 	}
 
+	// Signal globally that the search palette is open. Lets other
+	// components hide UI that would visually collide (e.g. DocReader's
+	// FAB and scroll-triggered chrome) without prop-drilling state.
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+		document.body.classList.toggle('search-open', open);
+		return () => document.body.classList.remove('search-open');
+	});
+
 	function pickDoc(r: SearchResult) {
 		closePalette();
 		goto(docPath(r.wsId, r.slug, r.title));
@@ -189,6 +198,11 @@
 					<span class="spinner" aria-hidden="true"></span>
 				{/if}
 				<span class="esc">esc</span>
+				<button type="button" class="close-btn" onclick={closePalette} aria-label="Fechar busca">
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+					</svg>
+				</button>
 			</div>
 
 			<div class="palette-results" bind:this={resultsEl}>
@@ -519,7 +533,52 @@
 			font-size: 12px;
 		}
 		.search-trigger kbd { display: none; }
-		.palette-backdrop { padding-top: 8vh; }
+
+		/* On phone the backdrop-floating modal looks disconnected — the
+		   search pill stays behind the backdrop and the palette itself
+		   floats awkwardly mid-screen. Go full-screen instead: palette
+		   spans the viewport, no backdrop tint needed because the
+		   palette itself covers everything. Native iOS search pattern. */
+		.palette-backdrop {
+			padding-top: 0;
+			background: var(--bg);
+			backdrop-filter: none;
+			-webkit-backdrop-filter: none;
+			animation: none;
+		}
+		.palette {
+			width: 100%;
+			max-width: none;
+			max-height: 100dvh;
+			height: 100dvh;
+			border: 0;
+			border-radius: 0;
+			box-shadow: none;
+			animation: none;
+		}
+		.palette-search { padding-top: calc(env(safe-area-inset-top) + 14px); }
 		.palette-item .pi-sub { display: none; }
+
+		/* Keyboard-centric hints belong on desktop. On phone we show just a
+		   close X (already in the search row) and nothing at the bottom
+		   — the AI handoff is reachable via the FAB sheet anyway. */
+		.palette-search .esc { display: none; }
+		.palette-foot { display: none; }
+		.close-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 34px;
+			height: 34px;
+			border: 0;
+			background: transparent;
+			color: var(--ink-muted);
+			cursor: pointer;
+			flex-shrink: 0;
+		}
 	}
+
+	/* On desktop the close-X is superfluous — Esc + the kbd chip already
+	   communicate how to dismiss. Hide unless we're on phone. */
+	.close-btn { display: none; }
 </style>

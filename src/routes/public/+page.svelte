@@ -43,11 +43,7 @@
 
 <div class="atelier">
 	<header class="top-bar">
-		<a class="brand" href="/public">
-			<BrandLogo height={26} />
-			<span class="brand-sep">/</span>
-			<span class="breadcrumb">Público</span>
-		</a>
+		<BrandLogo height={26} href="/public" />
 
 		<span class="spacer"></span>
 
@@ -201,25 +197,6 @@
 		backdrop-filter: saturate(1.2) blur(10px);
 		-webkit-backdrop-filter: saturate(1.2) blur(10px);
 		z-index: -1;
-	}
-
-	.brand {
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		font-family: var(--font-serif-display);
-		font-size: 20px;
-		font-weight: 600;
-		letter-spacing: -0.01em;
-		color: var(--ink);
-	}
-
-	.brand-sep { color: var(--ink-muted); font-weight: 400; }
-
-	.breadcrumb {
-		font-family: var(--font-sans);
-		font-size: 13px;
-		color: var(--ink-soft);
 	}
 
 	.spacer { flex: 1; }

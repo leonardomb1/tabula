@@ -1,13 +1,11 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import Search from '$lib/Search.svelte';
-	import BrandLogo from '$lib/BrandLogo.svelte';
-	import UserMenu from '$lib/UserMenu.svelte';
-	import { openWorkspaceModal, workspaceModal } from '$lib/workspaceModal.svelte';
+	import TopBar from '$lib/TopBar.svelte';
 	import { toggleAi, aiDock } from '$lib/aiDock.svelte';
 	import { page } from '$app/stores';
 	import { ROLES, isAtLeast } from '$lib/roles';
 	import { docPath } from '$lib/ids';
+	import MobileSheet from '$lib/MobileSheet.svelte';
 
 	let { data }: { data: PageData } = $props();
 
@@ -43,9 +41,6 @@
 		return new Date(d).toLocaleDateString('pt-BR', { year: 'numeric', month: 'short', day: 'numeric' });
 	}
 
-	function initial(name: string): string {
-		return (name.trim()[0] ?? '?').toUpperCase();
-	}
 </script>
 
 <svelte:head>
@@ -53,33 +48,8 @@
 </svelte:head>
 
 <div class="atelier">
-	<header class="top-bar">
-		<div class="brand-slot">
-			<BrandLogo height={26} />
-			<span class="brand-sep">/</span>
-			<button
-				type="button"
-				class="ws-pill"
-				class:is-opening={workspaceModal.open}
-				onclick={openWorkspaceModal}
-				aria-haspopup="dialog"
-				aria-expanded={workspaceModal.open}
-				aria-label="Workspace: {data.currentWs.name}"
-			>
-				<!-- Keyed on pulseKey so each open() replays the pulse animation. -->
-				{#key workspaceModal.pulseKey}
-					<span class="badge" aria-hidden="true">{initial(data.currentWs.name)}</span>
-				{/key}
-				<span class="name">{data.currentWs.name}</span>
-				<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-					<path d="M6 9l6 6 6-6"/>
-				</svg>
-			</button>
-		</div>
-
-		<Search wsId={data.currentWs.id} wsName={data.currentWs.name} />
-
-		<div class="actions">
+	<TopBar ws={data.currentWs}>
+		{#snippet actions()}
 			<button
 				type="button"
 				class="icon-btn"
@@ -96,9 +66,31 @@
 			{#if canWrite}
 				<a href="/new?ws={data.currentWs.id}" class="action-btn primary">+ Novo</a>
 			{/if}
-			<UserMenu />
-		</div>
-	</header>
+		{/snippet}
+	</TopBar>
+
+	<MobileSheet label="Menu">
+		{#if canWrite}
+			<a href="/new?ws={data.currentWs.id}" class="sheet-action">
+				<span class="sheet-action__icon" aria-hidden="true">
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+				</span>
+				<span class="sheet-action__meta">
+					<span class="sheet-action__label">Novo documento</span>
+					<span class="sheet-action__hint">em {data.currentWs.name}</span>
+				</span>
+			</a>
+		{/if}
+		<button type="button" class="sheet-action" onclick={toggleAi}>
+			<span class="sheet-action__icon" aria-hidden="true">
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3.5h10a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-1.5H3A1.5 1.5 0 0 1 1.5 10V5A1.5 1.5 0 0 1 3 3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.2 7.2h.01M8 7.2h.01M10.8 7.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+			</span>
+			<span class="sheet-action__meta">
+				<span class="sheet-action__label">Assistente IA</span>
+				<span class="sheet-action__hint">Perguntar sobre o workspace</span>
+			</span>
+		</button>
+	</MobileSheet>
 
 	<main class="index-main">
 		{#if data.docs.length === 0}
@@ -224,115 +216,9 @@
 		color: var(--ink);
 	}
 
-	/* ══════════════════════════════════════
-	   Top bar
-	═══════════════════════════════════════ */
-	.top-bar {
-		position: sticky;
-		top: 0;
-		z-index: 40;
-		border-bottom: 1px solid var(--rule);
-		max-width: 1520px;
-		margin: 0 auto;
-		padding: 0 28px;
-		height: 56px;
-		display: grid;
-		grid-template-columns: auto 1fr auto;
-		align-items: center;
-		gap: 24px;
-	}
-
-	/* The frosted-glass background lives on a pseudo-element so that
-	   `backdrop-filter` doesn't create a containing block for fixed
-	   descendants of .top-bar in Chromium. Without this trick our
-	   mobile bottom-nav (position: fixed inside .top-bar) would anchor
-	   to the top-bar's bottom edge instead of the viewport bottom. */
-	.top-bar::before {
-		content: '';
-		position: absolute;
-		inset: 0;
-		background: color-mix(in oklab, var(--bg) 88%, transparent);
-		backdrop-filter: saturate(1.2) blur(10px);
-		-webkit-backdrop-filter: saturate(1.2) blur(10px);
-		z-index: -1;
-	}
-
-	.brand-slot {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-	}
-
-	.brand-sep {
-		color: var(--ink-muted);
-		font-family: var(--font-serif-display);
-	}
-
-	.ws-pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 8px;
-		padding: 3px 10px 3px 3px;
-		border: 1px solid var(--rule);
-		border-radius: 999px;
-		background: var(--surface);
-		cursor: pointer;
-		font-family: var(--font-sans);
-		color: var(--ink);
-		transition: background 0.15s, border-color 0.15s;
-	}
-
-	.ws-pill:hover { border-color: color-mix(in oklab, var(--rule) 60%, var(--ink) 20%); }
-
-	.ws-pill.is-opening {
-		background: var(--accent-soft);
-		border-color: var(--accent);
-		color: var(--accent-ink);
-	}
-
-	.ws-pill .badge {
-		display: grid;
-		place-items: center;
-		width: 22px;
-		height: 22px;
-		border-radius: 999px;
-		background: var(--accent);
-		color: #fff;
-		font-family: var(--font-serif-display);
-		font-size: 12px;
-		font-weight: 700;
-		line-height: 1;
-	}
-
-	.ws-pill.is-opening .badge { animation: pillPulse 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
-
-	@keyframes pillPulse {
-		0% { transform: scale(1); }
-		40% { transform: scale(1.35); }
-		100% { transform: scale(1); }
-	}
-
-	.ws-pill .name {
-		font-size: 13px;
-		font-weight: 500;
-	}
-
-	.ws-pill .chev {
-		width: 12px;
-		height: 12px;
-		color: var(--ink-muted);
-		flex-shrink: 0;
-		transition: transform 0.15s;
-	}
-
-	.ws-pill[aria-expanded='true'] .chev { transform: rotate(180deg); }
-
-	.actions {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-	}
-
+	/* Top bar, brand slot, workspace pill, and search positioning all live
+	   in $lib/TopBar.svelte. Button classes below decorate the cluster
+	   this page passes into TopBar's `actions` snippet. */
 	.icon-btn {
 		display: inline-grid;
 		place-items: center;
@@ -386,13 +272,6 @@
 	.action-btn.primary:hover {
 		background: oklch(0.3 0.015 80);
 		border-color: transparent;
-	}
-
-	:global(.top-bar > .search-trigger) {
-		justify-self: center;
-		min-width: 240px;
-		max-width: 420px;
-		width: 100%;
 	}
 
 	/* ══════════════════════════════════════
@@ -773,69 +652,8 @@
 	   Responsive
 	═══════════════════════════════════════ */
 	@media (max-width: 860px) {
-		.top-bar {
-			grid-template-columns: auto 1fr auto;
-			height: auto;
-			padding: 10px 14px;
-			gap: 10px;
-		}
 		.index-main { padding: 32px 20px 64px; }
 		.index-title { font-size: 36px; }
-	}
-
-	/* ══════════════════════════════════════
-	   Mobile bottom nav — primary actions move out of the top bar and
-	   into a fixed bar at the viewport bottom, app-style. Reserves
-	   vertical space on the page so the last line of content is never
-	   hidden behind it.
-	═══════════════════════════════════════ */
-	@media (max-width: 640px) {
-		.atelier { padding-bottom: 68px; }
-
-		/* `.actions` goes fixed below → its grid slot would otherwise sit
-		   empty and steal width from the search column. Drop to 2 cols. */
-		.top-bar { grid-template-columns: auto minmax(0, 1fr); }
-		.brand-slot { min-width: 0; flex-shrink: 1; }
-		.brand-slot :global(.brand-text) { display: none; }
-		/* Collapse the pill to just the badge + chevron on mobile — the name
-		   is redundant with the masthead below and eats search width. */
-		.brand-slot .ws-pill .name { display: none; }
-		.brand-slot .ws-pill { padding: 3px 8px 3px 3px; }
-		.brand-sep { display: none; }
-
-		.actions {
-			position: fixed;
-			left: 0;
-			right: 0;
-			bottom: 0;
-			padding: 8px 14px calc(8px + env(safe-area-inset-bottom));
-			background: var(--bg);
-			border-top: 1px solid var(--rule);
-			justify-content: space-around;
-			gap: 4px;
-			z-index: 40;
-			box-shadow: 0 -12px 24px -16px rgba(0, 0, 0, 0.12);
-			/* Force a compositing layer — without it the fixed bar gets
-			   dragged along with scroll on mobile (Chromium "fixed inside
-			   sticky" quirk). */
-			transform: translateZ(0);
-			will-change: transform;
-		}
-
-		.action-btn.primary {
-			padding: 0 18px;
-			height: 36px;
-		}
-
-		/* Trigger sits at the viewport bottom → the UserMenu dropdown
-		   must open upward or it renders off-screen. :global() needed
-		   because the .dropdown class is scoped to the UserMenu
-		   component, not this page. */
-		.actions :global(.dropdown) {
-			top: auto;
-			bottom: calc(100% + 0.5rem);
-			transform-origin: bottom right;
-		}
 	}
 
 </style>

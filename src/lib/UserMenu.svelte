@@ -3,6 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
+	import { openWorkspaceModal } from './workspaceModal.svelte';
 
 	/**
 	 * Custom Svelte transition for the dropdown: fades in while sliding down
@@ -22,7 +23,9 @@
 	}
 
 	const user = $derived($page.data.user as { username: string; displayName: string } | null);
-	const currentWs = $derived($page.data.currentWs as { id: string; name: string } | null);
+	const currentWs = $derived(
+		$page.data.currentWs as { id: string; name: string; kind: 'team' | 'personal' } | null
+	);
 	let open = $state(false);
 	let rootEl = $state<HTMLDivElement | null>(null);
 
@@ -114,9 +117,23 @@
 				</div>
 
 				{#if currentWs}
-					<div class="section">
+					<div class="section ws-section">
 						<p class="section-eyebrow">Workspace atual</p>
 						<p class="ws-name">{currentWs.name}</p>
+						<div class="ws-actions">
+							<button
+								type="button"
+								class="ws-btn"
+								onclick={() => { open = false; openWorkspaceModal(); }}
+							>Trocar</button>
+							{#if currentWs.kind === 'team'}
+								<a
+									href="/settings/workspaces/{currentWs.id}"
+									class="ws-btn"
+									onclick={() => (open = false)}
+								>Configurações</a>
+							{/if}
+						</div>
 					</div>
 				{/if}
 
@@ -321,6 +338,32 @@
 		font-family: var(--font-serif-display);
 		font-size: 14.5px;
 		font-weight: 500;
+		color: var(--ink);
+	}
+
+	.ws-actions {
+		display: flex;
+		gap: 6px;
+		margin-top: 4px;
+	}
+	.ws-btn {
+		flex: 1;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 28px;
+		padding: 0 10px;
+		background: var(--bg-deep);
+		border: 1px solid var(--rule);
+		border-radius: 5px;
+		color: var(--ink-soft);
+		font-family: var(--font-sans);
+		font-size: 12px;
+		cursor: pointer;
+		text-decoration: none;
+	}
+	.ws-btn:hover {
+		background: var(--surface);
 		color: var(--ink);
 	}
 

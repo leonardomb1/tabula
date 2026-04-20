@@ -2,6 +2,8 @@
 	import { page } from '$app/stores';
 	import { docPath } from './ids';
 
+	import type { Snippet } from 'svelte';
+
 	type TocEntry = { level: number; id: string; text: string };
 	type CitedRef = { key: string; label: string; title: string };
 	type Backlink = { slug: string; title: string };
@@ -30,13 +32,18 @@
 		doc,
 		citedRefs = [],
 		backlinks = [],
-		wsId = null
+		wsId = null,
+		mobileActions
 	}: {
 		doc: Doc;
 		citedRefs?: CitedRef[];
 		backlinks?: Backlink[];
 		/** Required to render backlinks (they link into /w/<ws>/…). Pass null on public to hide them. */
 		wsId?: string | null;
+		/** Content of the "Ações" tab in the mobile bottom sheet. The authed
+		 * viewer passes action rows here (Editar, Exportar, etc); public
+		 * viewer omits this prop and the tab is hidden. */
+		mobileActions?: Snippet;
 	} = $props();
 
 	let activeTocId = $state<string | null>(null);
@@ -44,6 +51,49 @@
 	let margListEl = $state<HTMLElement | null>(null);
 	let tocRailEl = $state<HTMLElement | null>(null);
 	let showBackToTop = $state(false);
+
+	// Mobile bottom sheet — opens on FAB tap or citation-superscript tap.
+	// The tab prop is ignored on desktop (the sheet isn't rendered there).
+	type SheetTab = 'actions' | 'toc' | 'cites';
+	let sheetOpen = $state(false);
+	let activeSheetTab = $state<SheetTab>('actions');
+
+	function openSheet(tab: SheetTab = 'actions') {
+		// Fall back gracefully if a caller asks for a tab that isn't available
+		// (e.g. public viewer has no actions, or doc has no toc).
+		const fallback: SheetTab = mobileActions
+			? 'actions'
+			: doc.toc.length > 2
+				? 'toc'
+				: 'cites';
+		const hasTab =
+			(tab === 'actions' && mobileActions) ||
+			(tab === 'toc' && doc.toc.length > 2) ||
+			(tab === 'cites' && citedRefs.length > 0);
+		activeSheetTab = hasTab ? tab : fallback;
+		sheetOpen = true;
+	}
+	function closeSheet() { sheetOpen = false; }
+
+	// Escape closes the sheet. Placed here (not in an action) because the
+	// sheet's open/closed state needs to be readable.
+	$effect(() => {
+		if (!sheetOpen) return;
+		function onKey(e: KeyboardEvent) { if (e.key === 'Escape') closeSheet(); }
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
+
+	// Citation-superscript taps in the rendered body should open the sheet
+	// directly on the citations tab. The body is {@html}-injected, so we
+	// listen at the container level and filter by click target.
+	function onBodyClickMobile(e: MouseEvent) {
+		if (window.innerWidth > 720) return;
+		const target = (e.target as HTMLElement).closest?.('.cite-link, sup.cite') as HTMLElement | null;
+		if (!target) return;
+		e.preventDefault();
+		openSheet('cites');
+	}
 
 	// Collapse the left column when neither citations nor backlinks exist —
 	// otherwise the 260px slot would leave the article offset to the right.
@@ -57,6 +107,30 @@
 		const a = doc.frontmatter.author;
 		if (!a) return null;
 		return Array.isArray(a) ? a.join(', ') : a;
+	});
+
+	// Mobile author strip: two-letter initials from the first author — first
+	// letter of first word + first letter of last word. "Leonardo Machado
+	// Baptista" → "LB". Falls back to "·" if no author is set.
+	const authorInitials = $derived.by(() => {
+		const a = doc.frontmatter.author;
+		const first = Array.isArray(a) ? a[0] : a;
+		if (!first) return '·';
+		const parts = String(first).trim().split(/\s+/);
+		const head = parts[0]?.[0] ?? '';
+		const tail = parts.length > 1 ? (parts[parts.length - 1][0] ?? '') : '';
+		return (head + tail).toUpperCase() || '·';
+	});
+
+	// Kicker line on mobile — "● DOCUMENTO FORMAL · 18 DE ABR. DE 2026".
+	// `doctype` overrides the generic label when present; date falls back
+	// to mtime so the kicker always has a temporal anchor.
+	const kickerLabel = $derived(
+		(doc.frontmatter.doctype ?? (doc.frontmatter.formal ? 'Documento formal' : 'Documento')).toUpperCase()
+	);
+	const kickerDate = $derived.by(() => {
+		const d = doc.frontmatter.date ?? doc.mtime;
+		return d ? formatMeta(d).toUpperCase() : null;
 	});
 
 	// Mermaid — re-render whenever the doc body changes. Narrow containers
@@ -276,11 +350,25 @@
 			{/if}
 		</div>
 
+		<div class="kicker-row" aria-hidden="true">
+			<span class="kicker-lead"><span class="kicker-dot">●</span> {kickerLabel}</span>
+			{#if kickerDate}
+				<span class="kicker-sep">·</span>
+				<span class="kicker-date">{kickerDate}</span>
+			{/if}
+		</div>
+
 		<h1 class="doc-title">{doc.title}</h1>
 
 		{#if doc.frontmatter.description}
 			<p class="doc-deck">{doc.frontmatter.description}</p>
 		{/if}
+
+		<div class="author-strip">
+			<div class="author-avatar" aria-hidden="true">{authorInitials}</div>
+			<div class="author-names">{authorText ?? 'Sem autor'}</div>
+			<div class="author-time">{doc.readMinutes} min</div>
+		</div>
 
 		<div class="doc-byline">
 			{#if authorText}
@@ -317,10 +405,22 @@
 			class="prose doc-body"
 			onmouseover={onBodyMouseOver}
 			onfocusin={onBodyMouseOver}
+			onclick={onBodyClickMobile}
 			role="presentation"
 		>
 			{@html doc.html}
 		</div>
+
+		{#if doc.frontmatter.tags?.length}
+			<section class="tag-cloud">
+				<p class="tag-cloud__label">Tags</p>
+				<div class="tag-cloud__list">
+					{#each doc.frontmatter.tags as tag}
+						<a href="/?tag={encodeURIComponent(tag)}" class="tag-cloud__chip">{tag}</a>
+					{/each}
+				</div>
+			</section>
+		{/if}
 	</article>
 
 	{#if doc.toc.length > 2}
@@ -350,6 +450,119 @@
 		<path d="M8 13V3M3 7l5-4 5 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
 	</svg>
 </button>
+
+<!-- ════════════════════════════════════════
+     Mobile FAB + bottom sheet
+     Consolidates actions, TOC, and citations under a single entry
+     point on phone-sized viewports. Hidden above 720px by CSS — the
+     desktop rails + top-bar actions cover the same territory there.
+════════════════════════════════════════ -->
+<button
+	type="button"
+	class="fab"
+	class:is-hidden={sheetOpen}
+	onclick={() => openSheet()}
+	aria-label="Menu do documento"
+	aria-expanded={sheetOpen}
+>
+	<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+		<path d="M5 6h14M5 12h14M5 18h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+	</svg>
+</button>
+
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+<div
+	class="scrim"
+	class:is-open={sheetOpen}
+	onclick={closeSheet}
+	aria-hidden="true"
+></div>
+
+<!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
+<section
+	class="sheet"
+	class:is-open={sheetOpen}
+	role="dialog"
+	aria-modal="true"
+	aria-label="Menu do documento"
+	aria-hidden={!sheetOpen}
+>
+	<div class="sheet-grabber" aria-hidden="true"></div>
+
+	<div class="sheet-tabs" role="tablist">
+		{#if mobileActions}
+			<button
+				type="button"
+				role="tab"
+				class="sheet-tab"
+				class:is-active={activeSheetTab === 'actions'}
+				aria-selected={activeSheetTab === 'actions'}
+				onclick={() => (activeSheetTab = 'actions')}
+			>Ações</button>
+		{/if}
+		{#if doc.toc.length > 2}
+			<button
+				type="button"
+				role="tab"
+				class="sheet-tab"
+				class:is-active={activeSheetTab === 'toc'}
+				aria-selected={activeSheetTab === 'toc'}
+				onclick={() => (activeSheetTab = 'toc')}
+			>Índice</button>
+		{/if}
+		{#if citedRefs.length > 0}
+			<button
+				type="button"
+				role="tab"
+				class="sheet-tab"
+				class:is-active={activeSheetTab === 'cites'}
+				aria-selected={activeSheetTab === 'cites'}
+				onclick={() => (activeSheetTab = 'cites')}
+			>Na margem</button>
+		{/if}
+	</div>
+
+	<div class="sheet-body">
+		{#if mobileActions && activeSheetTab === 'actions'}
+			<div class="sheet-panel">{@render mobileActions()}</div>
+		{/if}
+
+		{#if doc.toc.length > 2 && activeSheetTab === 'toc'}
+			<ol class="sheet-toc">
+				{#each doc.toc as entry}
+					<li class="sheet-toc__item sheet-toc__item--level-{entry.level}">
+						<a href="#{entry.id}" onclick={closeSheet}>{entry.text}</a>
+					</li>
+				{/each}
+			</ol>
+		{/if}
+
+		{#if citedRefs.length > 0 && activeSheetTab === 'cites'}
+			<div class="sheet-cites">
+				{#each citedRefs as ref (ref.key)}
+					<a
+						href="#ref-{ref.key}"
+						class="sheet-cite"
+						class:is-active={activeCiteKey === ref.key}
+						onclick={closeSheet}
+					>
+						<span class="sheet-cite__tag">Citação · {ref.key.toUpperCase()}</span>
+						<span class="sheet-cite__label">{ref.label}</span>
+						<span class="sheet-cite__title">{ref.title}</span>
+					</a>
+				{/each}
+				{#if wsId && backlinks.length > 0}
+					<p class="sheet-cites__sep">Referenciado por</p>
+					<ul class="sheet-backlinks">
+						{#each backlinks as bl}
+							<li><a href={docPath(wsId, bl.slug, bl.title)} onclick={closeSheet}>{bl.title}</a></li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		{/if}
+	</div>
+</section>
 
 <style>
 	/* ══════════════════════════════════════
@@ -918,6 +1131,209 @@
 	:global(body.ai-open) .back-to-top { right: calc(380px + 24px); }
 
 	/* ══════════════════════════════════════
+	   Mobile-only header elements — hidden by default, unveiled below 720px
+	   in place of the desktop meta-row / doc-byline.
+	═══════════════════════════════════════ */
+	.kicker-row,
+	.author-strip,
+	.tag-cloud { display: none; }
+
+	/* ══════════════════════════════════════
+	   FAB + bottom sheet — mobile-only (display:none above 720px). FAB is
+	   always in the tree so Svelte transitions don't hiccup on first open.
+	═══════════════════════════════════════ */
+	.fab {
+		display: none;
+		position: fixed;
+		right: 16px;
+		bottom: calc(env(safe-area-inset-bottom) + 20px);
+		width: 56px;
+		height: 56px;
+		border-radius: 28px;
+		background: var(--ink);
+		color: var(--bg);
+		align-items: center;
+		justify-content: center;
+		border: 0;
+		box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(0, 0, 0, 0.10);
+		z-index: 70;
+		cursor: pointer;
+		transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 160ms;
+	}
+	.fab:active { transform: scale(0.96); }
+	.fab.is-hidden {
+		transform: translateY(90px);
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.scrim {
+		display: none;
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.4);
+		z-index: 80;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 200ms ease;
+	}
+	.scrim.is-open { opacity: 1; pointer-events: auto; }
+
+	.sheet {
+		display: none;
+		position: fixed;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		z-index: 90;
+		background: var(--bg);
+		border-top: 1px solid var(--rule);
+		border-top-left-radius: 22px;
+		border-top-right-radius: 22px;
+		box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.2);
+		max-height: 78dvh;
+		flex-direction: column;
+		padding-bottom: calc(env(safe-area-inset-bottom) + 12px);
+		transform: translateY(100%);
+		transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+	.sheet.is-open { transform: translateY(0); }
+
+	.sheet-grabber {
+		height: 4px;
+		width: 36px;
+		border-radius: 2px;
+		background: var(--rule);
+		margin: 8px auto 4px;
+		flex-shrink: 0;
+	}
+
+	.sheet-tabs {
+		display: flex;
+		gap: 3px;
+		padding: 8px 14px 0;
+		background: var(--bg);
+		flex-shrink: 0;
+	}
+	.sheet-tabs::before {
+		content: '';
+		display: block;
+		position: absolute;
+	}
+	.sheet-tab {
+		flex: 1;
+		height: 32px;
+		border-radius: 8px;
+		border: 0;
+		background: transparent;
+		font-family: var(--font-sans);
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--ink-muted);
+		cursor: pointer;
+	}
+	.sheet-tab.is-active {
+		background: var(--chip-bg);
+		color: var(--ink);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+	}
+
+	.sheet-body {
+		flex: 1;
+		overflow-y: auto;
+		padding: 12px 0 8px;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.sheet-panel { display: flex; flex-direction: column; }
+
+	.sheet-toc {
+		list-style: none;
+		margin: 0;
+		padding: 4px 20px;
+	}
+	.sheet-toc__item {
+		padding: 9px 0;
+		border-bottom: 0.5px solid color-mix(in oklab, var(--rule) 60%, transparent);
+		font-family: var(--font-sans);
+	}
+	.sheet-toc__item:last-child { border-bottom: 0; }
+	.sheet-toc__item a {
+		display: block;
+		font-size: 14px;
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.sheet-toc__item--level-3 a,
+	.sheet-toc__item--level-4 a {
+		padding-left: 18px;
+		font-size: 13px;
+		color: var(--ink-soft);
+	}
+	.sheet-toc__item--level-4 a { padding-left: 36px; }
+
+	.sheet-cites { padding: 6px 20px 12px; }
+	.sheet-cite {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		padding: 12px 0;
+		border-bottom: 0.5px solid var(--rule);
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.sheet-cite:last-of-type { border-bottom: 0; }
+	.sheet-cite__tag {
+		font-family: var(--font-sans);
+		font-size: 9.5px;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--ink-muted);
+	}
+	.sheet-cite__label {
+		font-family: var(--font-sans);
+		font-size: 13.5px;
+		font-weight: 500;
+	}
+	.sheet-cite__title {
+		font-family: var(--font-serif-body);
+		font-style: italic;
+		font-size: 13.5px;
+		line-height: 1.4;
+		color: var(--ink-soft);
+	}
+	.sheet-cite.is-active { background: var(--accent-soft); }
+
+	.sheet-cites__sep {
+		font-family: var(--font-sans);
+		font-size: 10px;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--ink-muted);
+		margin: 18px 0 8px;
+	}
+	.sheet-backlinks {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.sheet-backlinks li {
+		padding: 8px 0;
+		border-bottom: 0.5px solid color-mix(in oklab, var(--rule) 60%, transparent);
+	}
+	.sheet-backlinks li:last-child { border-bottom: 0; }
+	.sheet-backlinks a {
+		font-family: var(--font-sans);
+		font-size: 13px;
+		color: var(--ink);
+		text-decoration: none;
+	}
+
+	/* `.sheet-action` / `.sheet-action__*` rows ship as globals from
+	   `src/routes/layout.css` so /new, /, and the viewer all pick them
+	   up without depending on DocReader being on the page. */
+
+	/* ══════════════════════════════════════
 	   Responsive
 	═══════════════════════════════════════ */
 	@media (max-width: 1200px) {
@@ -940,10 +1356,147 @@
 		.doc-title { font-size: 40px; }
 	}
 
+	/* Phone — swap the top meta-row + byline block for a kicker row + a
+	   one-line author strip, move tags to a bottom section, and stop
+	   justifying prose (justified text on a ~320-480px column produces
+	   rivers of whitespace that hurt readability). */
+	@media (max-width: 720px) {
+		.meta-row,
+		.doc-byline { display: none; }
+
+		.kicker-row {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			font-family: var(--font-sans);
+			font-size: 10.5px;
+			letter-spacing: 0.09em;
+			text-transform: uppercase;
+			color: var(--ink-muted);
+			margin: 4px 0 14px;
+		}
+		.kicker-lead {
+			color: var(--ink);
+			font-weight: 600;
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+		}
+		.kicker-dot { color: var(--accent); font-size: 10px; line-height: 1; }
+		.kicker-sep { opacity: 0.5; }
+
+		.doc-title {
+			font-size: 32px;
+			letter-spacing: -0.015em;
+			line-height: 1.1;
+			margin-bottom: 14px;
+			font-variation-settings: 'opsz' 60;
+		}
+
+		.doc-deck {
+			font-size: 17px;
+			line-height: 1.5;
+			margin-bottom: 22px;
+		}
+
+		.author-strip {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 12px 0;
+			margin: 0 0 24px;
+			border-top: 0.5px solid var(--rule);
+			border-bottom: 0.5px solid var(--rule);
+			font-family: var(--font-sans);
+		}
+
+		.author-avatar {
+			width: 30px;
+			height: 30px;
+			border-radius: 50%;
+			background: var(--ink);
+			color: var(--bg, #fff);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font-size: 11px;
+			font-weight: 700;
+			letter-spacing: 0.02em;
+			flex-shrink: 0;
+		}
+		.author-names {
+			flex: 1;
+			min-width: 0;
+			font-size: 13px;
+			font-weight: 500;
+			color: var(--ink);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+		.author-time {
+			font-size: 11.5px;
+			color: var(--ink-muted);
+			flex-shrink: 0;
+		}
+
+		/* Left-aligned + hyphens is the biggest readability win on narrow
+		   columns — see `.kicker-row` rationale above. */
+		:global(.prose.doc-body p) {
+			text-align: left;
+			hyphens: auto;
+			-webkit-hyphens: auto;
+		}
+		:global(.prose.doc-body) { font-size: 17px; }
+		:global(.prose.doc-body h2) { font-size: 24px; margin: 40px 0 14px; }
+		:global(.prose.doc-body h3) { font-size: 19px; margin: 32px 0 12px; }
+
+		.tag-cloud {
+			display: block;
+			margin-top: 44px;
+			padding-top: 22px;
+			border-top: 0.5px solid var(--rule);
+		}
+		.tag-cloud__label {
+			font-family: var(--font-sans);
+			font-size: 10px;
+			letter-spacing: 0.1em;
+			text-transform: uppercase;
+			color: var(--ink-muted);
+			margin: 0 0 10px;
+		}
+		.tag-cloud__list {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 6px;
+		}
+		.tag-cloud__chip {
+			font-family: var(--font-sans);
+			font-size: 12px;
+			color: var(--ink-soft);
+			padding: 4px 9px;
+			border-radius: 4px;
+			background: var(--chip-bg);
+			border: 0.5px solid var(--rule);
+		}
+		.tag-cloud__chip:hover {
+			background: var(--accent-soft);
+			color: var(--accent-ink);
+			border-color: var(--accent);
+		}
+	}
+
+	/* Phone: FAB replaces back-to-top; actions live in the sheet. */
+	@media (max-width: 720px) {
+		.fab { display: inline-flex; }
+		.scrim { display: block; }
+		.sheet { display: flex; }
+		.back-to-top { display: none; }
+	}
+
 	@media (max-width: 640px) {
-		/* Sits above the fixed bottom nav, right-aligned. The old "flip to
-		   left" workaround collided with the workspace-list scroll on
-		   the home page — right is the expected side. */
-		.back-to-top { bottom: calc(68px + 16px); }
+		/* Leftover desktop-ish breakpoint — nothing to do here now that the
+		   back-to-top is gone from mobile. Preserved as an anchor in case
+		   phone-only tweaks need to slot in. */
 	}
 </style>

@@ -8,6 +8,12 @@
 	import type { PageData } from './$types';
 	import type { RenderResult } from '$lib/markdown';
 	import { docPath } from '$lib/ids';
+	import MobileSheet from '$lib/MobileSheet.svelte';
+
+	// External trigger: tapping the "⋯" button in the mobile bottom bar
+	// opens the secondary-actions sheet. `hideFab` is true because the
+	// trigger is embedded in the bottom bar, not floating.
+	let mobileSheetOpen = $state(false);
 
 	let { data }: { data: PageData } = $props();
 
@@ -41,7 +47,6 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	let error = $state('');
 	let debounceTimer: ReturnType<typeof setTimeout>;
 	let editingExisting = $state(false);
-	let mobilePane = $state<'editor' | 'preview'>('editor');
 	let editorMenuOpen = $state(false);
 	let renderMarkdownPromise: Promise<(src: string) => RenderResult> | null = null;
 
@@ -70,11 +75,6 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		return { kind: 'saved', label: `Salvo há ${minutes}min` };
 	});
 
-	// CodeMirror re-measures after the pane becomes visible again on mobile.
-	$effect(() => {
-		mobilePane;
-		if (editorView) queueMicrotask(() => editorView.requestMeasure());
-	});
 
 	interface HistoryEntry { timestamp: number; label: string; }
 	let history = $state<HistoryEntry[]>([]);
@@ -508,20 +508,23 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 <div class="editor-shell">
 	<header class="top-bar">
-		<div class="brand">
-			<BrandLogo height={24} />
-			<span class="brand-sep">/</span>
-			<a class="crumb" href="/">{data.ws.name}</a>
-			<span class="brand-sep">›</span>
-			<span class="slug-crumb">
+		<a
+			class="back-btn"
+			href={editingExisting ? docPath(wsId, originalSlug, previewTitle) : `/?ws=${wsId}`}
+			aria-label="Voltar"
+			title={editingExisting ? 'Voltar ao documento' : 'Voltar ao workspace'}
+		>
+			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+				<path d="m15 6-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+			</svg>
+			<span class="back-label">
 				{#if editingExisting}
-					<span class="slug-prefix">/</span>
 					<span class="slug-readonly" title="URL imutável — edite o título no conteúdo">{slug}</span>
 				{:else}
-					<span class="slug-readonly is-draft">rascunho — URL atribuída ao salvar</span>
+					<span class="slug-readonly is-draft">rascunho</span>
 				{/if}
 			</span>
-		</div>
+		</a>
 
 		<div class="spacer"></div>
 
@@ -556,11 +559,6 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 				</svg>
 			</button>
 			{#if editingExisting}
-				<a
-					href={docPath(wsId, originalSlug, previewTitle)}
-					class="view-btn"
-					title="Ver documento publicado"
-				>↗ Ver</a>
 				<div class="editor-extras" class:menu-open={editorMenuOpen}>
 					<button class="extras-btn" onclick={() => (historyOpen = !historyOpen)} title="Histórico de versões">
 						⏱ {history.length}
@@ -574,6 +572,16 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 					aria-expanded={editorMenuOpen}
 				>⋯</button>
 			{/if}
+			<!-- Mobile-only: opens the secondary-actions sheet. The button
+			     is `display: none` above 720px; AI / View / History /
+			     Delete live in the desktop cluster above. -->
+			<button
+				type="button"
+				class="mobile-menu-btn"
+				onclick={() => (mobileSheetOpen = !mobileSheetOpen)}
+				aria-label="Mais ações"
+				aria-expanded={mobileSheetOpen}
+			>⋯</button>
 			<button class="save-btn" class:is-flash={savedFlash} onclick={save} disabled={saving}>
 				{#if savedFlash}
 					<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -587,16 +595,6 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		</div>
 		<UserMenu />
 	</header>
-
-	<div class="sub-bar">
-		<span class="stat">{wordCount} palavras</span>
-		<span class="sep">·</span>
-		<span class="stat">{readMinutes} min de leitura</span>
-		<div class="spacer"></div>
-		<span class="hint">
-			<kbd>⌘S</kbd> salvar
-		</span>
-	</div>
 
 	{#if error}
 		<div class="error-banner">{error}</div>
@@ -618,24 +616,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		</div>
 	{/if}
 
-	<div class="mobile-tabs" role="tablist">
-		<button
-			class="mobile-tab"
-			class:active={mobilePane === 'editor'}
-			role="tab"
-			aria-selected={mobilePane === 'editor'}
-			onclick={() => (mobilePane = 'editor')}
-		>Editor</button>
-		<button
-			class="mobile-tab"
-			class:active={mobilePane === 'preview'}
-			role="tab"
-			aria-selected={mobilePane === 'preview'}
-			onclick={() => (mobilePane = 'preview')}
-		>Visualização</button>
-	</div>
-
-	<div class="workspace" class:show-editor={mobilePane === 'editor'} class:show-preview={mobilePane === 'preview'}>
+	<div class="workspace">
 		<div class="pane pane-editor">
 			<div class="pane-label">
 				<span class="dot" aria-hidden="true"></span>
@@ -695,20 +676,54 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	</div>
 </div>
 
+<MobileSheet bind:open={mobileSheetOpen} hideFab anchor="top" topOffset="48px" label="Mais ações">
+	<button type="button" class="sheet-action" onclick={toggleAi}>
+		<span class="sheet-action__icon" aria-hidden="true">
+			<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3.5h10a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-1.5H3A1.5 1.5 0 0 1 1.5 10V5A1.5 1.5 0 0 1 3 3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.2 7.2h.01M8 7.2h.01M10.8 7.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+		</span>
+		<span class="sheet-action__meta">
+			<span class="sheet-action__label">Assistente IA</span>
+			<span class="sheet-action__hint">{aiDock.open ? 'Fechar painel' : 'Abrir painel'}</span>
+		</span>
+	</button>
+	{#if editingExisting}
+		<button type="button" class="sheet-action" onclick={() => (historyOpen = !historyOpen)}>
+			<span class="sheet-action__icon" aria-hidden="true">
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M8 5v3l2 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+			</span>
+			<span class="sheet-action__meta">
+				<span class="sheet-action__label">Histórico de versões</span>
+				<span class="sheet-action__hint">{history.length} {history.length === 1 ? 'versão' : 'versões'}</span>
+			</span>
+		</button>
+		<button type="button" class="sheet-action" onclick={deleteDoc}>
+			<span class="sheet-action__icon" aria-hidden="true" style="color: var(--danger, #b7342c)">
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V2.5h4V4M4 4v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</span>
+			<span class="sheet-action__meta">
+				<span class="sheet-action__label" style="color: var(--danger, #b7342c)">Excluir documento</span>
+			</span>
+		</button>
+	{/if}
+</MobileSheet>
+
 
 <style>
 	.editor-shell {
 		position: fixed;
 		inset: 0;
 		display: grid;
-		grid-template-rows: 48px 32px 1fr;
+		grid-template-rows: 48px 1fr;
 		background: var(--bg);
 		color: var(--ink);
 		font-family: var(--font-sans);
 	}
 
 	/* ══════════════════════════════════════
-	   Top bar
+	   Top bar — intentionally sparse: a back button + the minimal slug
+	   crumb on the left, autosave status + actions on the right. The
+	   brand/workspace chrome was removed so the editor reads as a
+	   focused writing surface, not another nav layer.
 	═══════════════════════════════════════ */
 	.top-bar {
 		display: flex;
@@ -720,47 +735,51 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		color: var(--ink-soft);
 		font-size: 13px;
 		min-width: 0;
+		/* Must sit above MobileSheet (z:90) so the top-anchored sheet's
+		   slide-in animation is hidden behind the bar instead of flashing
+		   over it during the 260ms transform. */
+		position: relative;
+		z-index: 100;
 	}
 
-	.brand {
-		display: flex;
-		align-items: baseline;
+	.back-btn {
+		display: inline-flex;
+		align-items: center;
 		gap: 10px;
+		padding: 4px 10px 4px 6px;
+		height: 32px;
+		border-radius: 6px;
+		color: var(--ink-soft);
+		font-family: var(--font-sans);
+		text-decoration: none;
 		min-width: 0;
 		flex: 0 1 auto;
 		overflow: hidden;
 	}
+	.back-btn:hover { background: var(--surface); color: var(--ink); }
+	.back-btn svg { flex-shrink: 0; }
 
-	.brand-sep { color: var(--ink-muted); font-family: var(--font-serif-display); }
-
-	.crumb {
-		color: var(--ink-soft);
-		font-family: var(--font-sans);
-		font-size: 13px;
-	}
-
-	.crumb:hover { color: var(--ink); }
-
-	.slug-crumb {
+	.back-label {
 		display: inline-flex;
 		align-items: center;
+		min-width: 0;
+		padding: 2px 8px;
 		background: var(--surface);
 		border: 1px solid var(--rule);
 		border-radius: 4px;
-		padding: 2px 8px;
 		font-family: var(--font-mono);
 		font-size: 12.5px;
-		color: var(--ink);
 	}
-
-	.slug-prefix { color: var(--ink-muted); margin-right: 2px; }
 
 	/* Read-only slug display — slugs are server-minted now, not user-typed. */
 	.slug-readonly {
 		color: var(--ink);
 		font: inherit;
-		min-width: 120px;
 		user-select: text;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.slug-readonly.is-draft {
@@ -814,8 +833,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		gap: 4px;
 	}
 
-	.extras-btn,
-	.view-btn {
+	.extras-btn {
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
@@ -832,8 +850,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		text-decoration: none;
 	}
 
-	.extras-btn:hover,
-	.view-btn:hover {
+	.extras-btn:hover {
 		background: var(--surface);
 		border-color: var(--rule);
 		color: var(--ink);
@@ -913,34 +930,6 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	@keyframes saveBtnPulse {
 		0% { box-shadow: 0 0 0 0 color-mix(in oklab, oklch(0.62 0.18 150) 55%, transparent); }
 		100% { box-shadow: 0 0 0 10px color-mix(in oklab, oklch(0.62 0.18 150) 0%, transparent); }
-	}
-
-	/* ══════════════════════════════════════
-	   Sub bar — stats
-	═══════════════════════════════════════ */
-	.sub-bar {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 0 16px;
-		background: var(--bg);
-		border-bottom: 1px solid var(--rule);
-		color: var(--ink-muted);
-		font-family: var(--font-mono);
-		font-size: 11px;
-	}
-
-	.sub-bar .stat { padding: 0 2px; }
-	.sub-bar .sep { color: var(--rule); }
-	.sub-bar .hint { color: var(--ink-muted); display: inline-flex; gap: 6px; align-items: center; }
-	.sub-bar kbd {
-		font-family: var(--font-sans);
-		font-size: 10px;
-		background: var(--bg-deep);
-		border: 1px solid var(--rule);
-		padding: 1px 5px;
-		border-radius: 3px;
-		color: var(--ink-soft);
 	}
 
 	/* ══════════════════════════════════════
@@ -1315,16 +1304,23 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	.restore-btn:hover:not(:disabled) { background: var(--bg); color: var(--ink); }
 	.restore-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-	/* ══════════════════════════════════════
-	   Mobile tabs
-	═══════════════════════════════════════ */
-	.mobile-tabs { display: none; }
+	/* Mobile "more actions" trigger — hidden on desktop; surfaced in the
+	   top bar below 720px where it opens the secondary-actions sheet. */
+	.mobile-menu-btn {
+		display: none;
+		width: 40px;
+		height: 36px;
+		border: 1px solid var(--rule);
+		border-radius: 6px;
+		background: var(--surface);
+		color: var(--ink);
+		font-size: 20px;
+		line-height: 1;
+		cursor: pointer;
+	}
 
 	@media (max-width: 860px) {
-		.editor-shell { grid-template-rows: auto auto auto 1fr; }
 		.top-bar { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px; }
-		.sub-bar { padding: 0 12px; }
-		.slug-readonly { min-width: 120px; }
 
 		.menu-toggle { display: inline-flex; }
 		.editor-extras {
@@ -1343,82 +1339,69 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		}
 		.editor-extras.menu-open { display: flex; }
 
-		.mobile-tabs {
-			display: flex;
-			gap: 2px;
-			padding: 6px 12px;
-			background: var(--bg-deep);
+		/* Mobile: stack the two panes as a horizontal split (editor top,
+		   preview bottom) so both surfaces stay visible while typing —
+		   mirrors the desktop vertical split. No tab toggle needed. */
+		.workspace {
+			grid-template-columns: 1fr;
+			grid-template-rows: 1fr 1fr;
+		}
+		.pane-editor {
+			border-right: 0;
 			border-bottom: 1px solid var(--rule);
 		}
-		.mobile-tab {
-			flex: 1;
-			height: 30px;
-			background: transparent;
-			border: 1px solid var(--rule);
-			border-radius: 5px;
-			color: var(--ink-soft);
-			font-size: 12px;
-			font-family: var(--font-sans);
-			cursor: pointer;
-		}
-		.mobile-tab.active {
-			background: var(--surface);
-			color: var(--ink);
-			font-weight: 500;
-		}
-
-		.workspace { grid-template-columns: 1fr; }
-		.pane-editor { display: none; border-right: 0; }
-		.pane-preview { display: none; }
-		.workspace.show-editor .pane-editor { display: flex; }
-		.workspace.show-preview .pane-preview { display: flex; }
 	}
 
 	/* ══════════════════════════════════════
-	   Mobile bottom nav — same pattern as home and viewer. The editor
-	   header gets too crowded on narrow viewports; actions move to a
-	   fixed bar at the bottom. Slug input stays in the top bar because
-	   it's central to the editing task.
+	   Mobile bottom nav — the editor's secondary actions move into a
+	   sheet (triggered by `.mobile-menu-btn`), leaving only [Save] +
+	   [⋯] in the fixed bottom bar. Slug input stays in the top bar —
+	   it's central to the editing task and confirms which doc is being
+	   written.
 	═══════════════════════════════════════ */
-	@media (max-width: 640px) {
-		/* Brand collapses to just the logo — no "Docs" text, no
-		   breadcrumb path. Slug input sits alongside the brand in a
-		   full-width row. */
-		.brand { gap: 6px; flex-wrap: nowrap; }
-		.crumb, .brand-sep { display: none; }
-		.slug-crumb { flex: 1; min-width: 0; }
-		.slug-readonly {
-			min-width: 0;
-			width: 100%;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
+	@media (max-width: 720px) {
+		/* AI toggle + editor-extras kebab live in the FAB sheet now.
+		   UserMenu stays visible — it's where workspace switching and
+		   logout live on phone. */
+		.ai-toggle,
+		.editor-extras,
+		.menu-toggle,
+		.header-actions :global(.dropdown) { display: none; }
+
+		.mobile-menu-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			/* Match the compact top-bar button metric. */
+			width: 36px;
+			height: 32px;
+			font-size: 16px;
 		}
 
-		.autosave { display: none; }
-
+		/* Keep .header-actions inline in the top bar — the save button
+		   becomes a compact chip matching desktop rather than a 44px
+		   floor-level slab. */
 		.header-actions {
-			position: fixed;
-			left: 0;
-			right: 0;
-			bottom: 0;
-			padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-			background: var(--bg);
-			border-top: 1px solid var(--rule);
-			justify-content: space-around;
-			gap: 4px;
-			z-index: 40;
-			box-shadow: 0 -12px 24px -16px rgba(0, 0, 0, 0.12);
+			display: inline-flex;
+			gap: 6px;
 		}
-
-		/* The extras menu still exists for secondary actions but its
-		   absolute positioning needs rebasing against the bottom nav. */
-		.editor-extras {
-			top: auto;
-			bottom: 54px;
-			right: 12px;
+		.save-btn {
+			flex: 0 0 auto;
+			height: 32px;
+			padding: 0 14px;
+			font-size: 13px;
 		}
+	}
 
-		.workspace { padding-bottom: 62px; }
+	@media (max-width: 640px) {
+		.back-btn { padding: 4px 6px; min-width: 0; }
+		.back-label {
+			/* Let the slug ellipsize when the row gets tight so Save + ⋯
+			   always stay visible. */
+			min-width: 0;
+			flex: 0 1 auto;
+			max-width: 40vw;
+		}
+		.autosave { display: none; }
 	}
 </style>

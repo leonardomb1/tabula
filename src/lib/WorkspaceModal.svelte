@@ -37,7 +37,13 @@
 		// and other tabs stay in sync.
 		if (typeof localStorage !== 'undefined') localStorage.setItem('docs_ws', ws.id);
 		document.cookie = `docs_ws=${encodeURIComponent(ws.id)}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
-		await goto($page.url.pathname + $page.url.search, { invalidateAll: true });
+		// Workspace-scoped paths (reader /w/:ws/... and the editor) carry
+		// the old workspace identity in the URL or session and won't
+		// resolve in the new space — bounce to home instead.
+		const path = $page.url.pathname;
+		const isWorkspaceScoped = path.startsWith('/w/') || path === '/new' || path.startsWith('/edit');
+		const target = isWorkspaceScoped ? '/' : path + $page.url.search;
+		await goto(target, { invalidateAll: true });
 	}
 
 	function onKeydown(e: KeyboardEvent) {

@@ -1,13 +1,10 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import Search from '$lib/Search.svelte';
-	import BrandLogo from '$lib/BrandLogo.svelte';
-	import UserMenu from '$lib/UserMenu.svelte';
+	import TopBar from '$lib/TopBar.svelte';
 	import PdfPreviewModal from '$lib/PdfPreviewModal.svelte';
 	import DocReader from '$lib/DocReader.svelte';
 	import { aiDock, toggleAi } from '$lib/aiDock.svelte';
 	import { goto } from '$app/navigation';
-	import { cubicOut } from 'svelte/easing';
 	import { ROLES, isAtLeast } from '$lib/roles';
 
 	let { data }: { data: PageData } = $props();
@@ -16,29 +13,6 @@
 
 	let previewOpen = $state(false);
 	let copied = $state(false);
-	let menuOpen = $state(false);
-	let menuWrapEl = $state<HTMLDivElement | null>(null);
-
-	// Shared drop-in animation for the kebab menu. Matches UserMenu.
-	function popIn(_node: Element, { duration = 160 } = {}) {
-		return {
-			duration,
-			easing: cubicOut,
-			css: (t: number) =>
-				`opacity: ${t};` +
-				`transform: translateY(${(1 - t) * -6}px) scale(${0.96 + t * 0.04});` +
-				`transform-origin: top right;`
-		};
-	}
-
-	function onDocClick(e: MouseEvent) {
-		if (!menuOpen) return;
-		if (menuWrapEl && !menuWrapEl.contains(e.target as Node)) menuOpen = false;
-	}
-
-	function onDocKey(e: KeyboardEvent) {
-		if (menuOpen && e.key === 'Escape') menuOpen = false;
-	}
 
 	function copyPublicLink() {
 		navigator.clipboard.writeText(`${location.origin}/public/${data.slug}`);
@@ -58,66 +32,96 @@
 	<title>{data.title}</title>
 </svelte:head>
 
-<svelte:document onclick={onDocClick} onkeydown={onDocKey} />
-
 <div class="atelier">
-	<header class="top-bar">
-		<div class="top-bar-inner">
-			<div class="brand">
-				<BrandLogo height={26} />
-				<span class="brand-sep">/</span>
-				<a class="breadcrumb" href="/">{data.ws.name}</a>
-			</div>
-
-			<Search wsId={data.ws.id} wsName={data.ws.name} pageHeadings={data.toc} />
-
-			<div class="actions">
+	<TopBar ws={data.ws} pageHeadings={data.toc}>
+		{#snippet actions()}
+			<button
+				type="button"
+				class="action-btn icon-btn"
+				class:is-active={aiDock.open}
+				onclick={toggleAi}
+				title="Assistente IA (⌘J)"
+				aria-label="Abrir assistente"
+			>
+				<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+					<path d="M3 3.5h10a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-1.5H3A1.5 1.5 0 0 1 1.5 10V5A1.5 1.5 0 0 1 3 3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+					<path d="M5.2 7.2h.01M8 7.2h.01M10.8 7.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+				</svg>
+			</button>
+			<a
+				href="/api/export/{data.slug}?format=md&ws={data.ws.id}"
+				class="action-btn icon-btn"
+				download
+				title="Baixar Markdown"
+				aria-label="Baixar Markdown"
+			>
+				<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+					<path d="M3 3h6.5L13 6.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+					<text x="8" y="11.5" text-anchor="middle" font-size="4.2" font-weight="700" fill="currentColor" font-family="var(--font-sans)">MD</text>
+				</svg>
+			</a>
+			<a
+				href="/api/export/{data.slug}?format=html&ws={data.ws.id}"
+				class="action-btn icon-btn"
+				download
+				title="Baixar HTML"
+				aria-label="Baixar HTML"
+			>
+				<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+					<path d="M3 3h6.5L13 6.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+					<path d="m6 10-1-1 1-1M10 8l1 1-1 1M7.8 11 8.6 8" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>
+			</a>
+			{#if data.frontmatter.public}
 				<button
 					type="button"
 					class="action-btn icon-btn"
-					class:is-active={aiDock.open}
-					onclick={toggleAi}
-					title="Assistente IA (⌘J)"
-					aria-label="Abrir assistente"
+					class:is-copied={copied}
+					onclick={copyPublicLink}
+					title={copied ? 'Link copiado' : 'Copiar link público'}
+					aria-label={copied ? 'Link copiado' : 'Copiar link público'}
 				>
-					<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-						<path d="M3 3.5h10a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-1.5H3A1.5 1.5 0 0 1 1.5 10V5A1.5 1.5 0 0 1 3 3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-						<path d="M5.2 7.2h.01M8 7.2h.01M10.8 7.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+					{#if copied}
+						<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+							<path d="M3 8.5l3.2 3.2L13 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					{:else}
+						<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+							<path d="M8 2v9m0-9-2.5 2.5M8 2l2.5 2.5M3.5 9.5v3a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					{/if}
+				</button>
+			{/if}
+			{#if data.frontmatter.formal}
+				<button
+					type="button"
+					class="action-btn icon-btn"
+					onclick={() => (previewOpen = true)}
+					title="Exportar PDF"
+					aria-label="Exportar PDF"
+				>
+					<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<path d="M3 3h6.5L13 6.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+						<text x="8" y="11.5" text-anchor="middle" font-size="4.2" font-weight="700" fill="currentColor" font-family="var(--font-sans)">PDF</text>
 					</svg>
 				</button>
-				{#if data.frontmatter.public}
-					<button class="action-btn" onclick={copyPublicLink}>
-						{copied ? '✓ Copiado' : '⬡ Público'}
-					</button>
-				{/if}
-				{#if data.frontmatter.formal}
-					<button class="action-btn" onclick={() => (previewOpen = true)}>↓ PDF</button>
-				{/if}
-				{#if canWrite}
-					<a href="/new?edit={data.slug}&ws={data.ws.id}" class="action-btn primary">Editar</a>
-				{/if}
-				<div class="more-wrap" class:menu-open={menuOpen} bind:this={menuWrapEl}>
-					<button
-						class="action-btn more-btn"
-						onclick={() => (menuOpen = !menuOpen)}
-						aria-label="Mais ações"
-						aria-expanded={menuOpen}
-					>⋯</button>
-					{#if menuOpen}
-						<div class="more-menu" role="menu" transition:popIn>
-							<a href="/api/export/{data.slug}?format=md&ws={data.ws.id}" class="more-item" download>↓ Markdown</a>
-							<a href="/api/export/{data.slug}?format=html&ws={data.ws.id}" class="more-item" download>↓ HTML</a>
-							{#if canWrite}
-								<hr/>
-								<button class="more-item danger" onclick={deleteDoc}>Excluir</button>
-							{/if}
-						</div>
-					{/if}
-				</div>
-				<UserMenu />
-			</div>
-		</div>
-	</header>
+			{/if}
+			{#if canWrite}
+				<button
+					type="button"
+					class="action-btn icon-btn danger"
+					onclick={deleteDoc}
+					title="Excluir documento"
+					aria-label="Excluir documento"
+				>
+					<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<path d="M3 4h10M6 4V2.5h4V4M4 4v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+				<a href="/new?edit={data.slug}&ws={data.ws.id}" class="action-btn primary">Editar</a>
+			{/if}
+		{/snippet}
+	</TopBar>
 
 	<DocReader
 		doc={{
@@ -132,8 +136,72 @@
 		citedRefs={data.citedRefs}
 		backlinks={data.backlinks}
 		wsId={data.ws.id}
+		mobileActions={mobileActionsSnippet}
 	/>
 </div>
+
+{#snippet mobileActionsSnippet()}
+	{#if canWrite}
+		<a href="/new?edit={data.slug}&ws={data.ws.id}" class="sheet-action">
+			<span class="sheet-action__icon" aria-hidden="true">
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M11 2.5 13.5 5 5 13.5H2.5V11L11 2.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+			</span>
+			<span class="sheet-action__meta">
+				<span class="sheet-action__label">Editar</span>
+				<span class="sheet-action__hint">Abre o editor</span>
+			</span>
+		</a>
+	{/if}
+	{#if data.frontmatter.formal}
+		<button type="button" class="sheet-action" onclick={() => (previewOpen = true)}>
+			<span class="sheet-action__icon" aria-hidden="true">
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0-3-3m3 3 3-3M2.5 11.5v1a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</span>
+			<span class="sheet-action__meta">
+				<span class="sheet-action__label">Exportar PDF</span>
+				<span class="sheet-action__hint">Visualização otimizada p/ impressão</span>
+			</span>
+		</button>
+	{/if}
+	<button type="button" class="sheet-action" onclick={toggleAi}>
+		<span class="sheet-action__icon" aria-hidden="true">
+			<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3.5h10a1.5 1.5 0 0 1 1.5 1.5v5a1.5 1.5 0 0 1-1.5 1.5H8.5L5.5 13v-1.5H3A1.5 1.5 0 0 1 1.5 10V5A1.5 1.5 0 0 1 3 3.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.2 7.2h.01M8 7.2h.01M10.8 7.2h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+		</span>
+		<span class="sheet-action__meta">
+			<span class="sheet-action__label">Assistente IA</span>
+			<span class="sheet-action__hint">Perguntar sobre este documento</span>
+		</span>
+	</button>
+	{#if data.frontmatter.public}
+		<button type="button" class="sheet-action" onclick={copyPublicLink}>
+			<span class="sheet-action__icon" aria-hidden="true">
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 10 10 6M5 10.5 3 8.5a2 2 0 1 1 2.8-2.8l1 1M11 5.5l1-1a2 2 0 1 1 2.8 2.8l-2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+			</span>
+			<span class="sheet-action__meta">
+				<span class="sheet-action__label">{copied ? 'Link copiado' : 'Copiar link público'}</span>
+				<span class="sheet-action__hint">/public/{data.slug}</span>
+			</span>
+		</button>
+	{/if}
+	<a href="/api/export/{data.slug}?format=md&ws={data.ws.id}" class="sheet-action" download>
+		<span class="sheet-action__icon" aria-hidden="true">
+			<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 3h7l3 3v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+		</span>
+		<span class="sheet-action__meta">
+			<span class="sheet-action__label">Baixar Markdown</span>
+		</span>
+	</a>
+	{#if canWrite}
+		<button type="button" class="sheet-action" onclick={deleteDoc}>
+			<span class="sheet-action__icon" aria-hidden="true" style="color: var(--danger, #b7342c)">
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 4h10M6 4V2.5h4V4M4 4v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+			</span>
+			<span class="sheet-action__meta">
+				<span class="sheet-action__label" style="color: var(--danger, #b7342c)">Excluir documento</span>
+			</span>
+		</button>
+	{/if}
+{/snippet}
 
 <PdfPreviewModal
 	open={previewOpen}
@@ -149,71 +217,11 @@
 		color: var(--ink);
 	}
 
-	/* ══════════════════════════════════════
-	   Top bar — owns only chrome concerns (brand, search, actions,
-	   user menu). The body/rails are delegated to <DocReader />.
-	═══════════════════════════════════════ */
-	.top-bar {
-		position: sticky;
-		top: 0;
-		z-index: 40;
-		border-bottom: 1px solid var(--rule);
-	}
-
-	/* Frosted-glass backdrop on a pseudo-element so `backdrop-filter`
-	   doesn't create a containing block for fixed descendants —
-	   otherwise the mobile bottom nav (fixed inside .actions) would
-	   anchor to the top bar's edge in Chromium. */
-	.top-bar::before {
-		content: '';
-		position: absolute;
-		inset: 0;
-		background: color-mix(in oklab, var(--bg) 88%, transparent);
-		backdrop-filter: saturate(1.2) blur(10px);
-		-webkit-backdrop-filter: saturate(1.2) blur(10px);
-		z-index: -1;
-	}
-
-	.top-bar-inner {
-		max-width: 1520px;
-		margin: 0 auto;
-		padding: 0 28px;
-		height: 56px;
-		display: grid;
-		grid-template-columns: 260px 1fr auto;
-		align-items: center;
-		gap: 24px;
-	}
-
-	.brand {
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		font-family: var(--font-serif-display);
-		font-size: 20px;
-		font-weight: 600;
-		letter-spacing: -0.01em;
-		color: var(--ink);
-		min-width: 0;
-	}
-
-	.brand-sep { color: var(--ink-muted); font-weight: 400; }
-
-	.breadcrumb {
-		font-family: var(--font-sans);
-		font-size: 13px;
-		color: var(--ink-soft);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.actions {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-
+	/* Top bar chrome (sticky, frosted, brand slot, workspace pill, search
+	   positioning, auto-hide, mobile grid collapse) lives in
+	   $lib/TopBar.svelte. The styles below decorate the action snippet's
+	   buttons — they intentionally stay page-scoped so tweaks here don't
+	   bleed into the dashboard's cluster. */
 	.action-btn {
 		display: inline-flex;
 		align-items: center;
@@ -257,109 +265,29 @@
 		border-color: transparent;
 	}
 
-	.more-wrap { position: relative; }
-	.more-btn { width: 32px; padding: 0; justify-content: center; font-size: 18px; line-height: 0; }
-
-	.more-menu {
-		position: absolute;
-		top: calc(100% + 6px);
-		right: 0;
-		min-width: 180px;
-		background: var(--surface);
-		border: 1px solid var(--rule);
-		border-radius: 8px;
-		box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.2);
-		padding: 4px;
-		display: flex;
-		flex-direction: column;
-		z-index: 30;
+	/* Icon-only variants of action-btn — used for the navbar cluster that
+	   replaced the old kebab dropdown (Markdown, HTML, share, delete). */
+	.action-btn.danger {
+		color: oklch(0.55 0.18 25);
+	}
+	:global([data-theme='dark']) .action-btn.danger {
+		color: oklch(0.78 0.16 25);
+	}
+	.action-btn.danger:hover {
+		background: oklch(0.95 0.03 25);
+		color: oklch(0.4 0.22 25);
+	}
+	:global([data-theme='dark']) .action-btn.danger:hover {
+		background: oklch(0.25 0.05 25);
 	}
 
-	.more-menu hr {
-		border: 0;
-		border-top: 1px solid var(--rule-soft);
-		margin: 4px 2px;
+	/* Share button briefly morphs into a ✓ while the clipboard copy is
+	   fresh. The color shift + background nudge make it unmistakable;
+	   the icon swap happens in markup (checkmark vs tray). */
+	.action-btn.is-copied {
+		color: var(--accent-ink);
+		background: var(--accent-soft);
+		border-color: transparent;
 	}
 
-	.more-item {
-		padding: 6px 10px;
-		border-radius: 4px;
-		font-size: 13px;
-		color: var(--ink-soft);
-		text-align: left;
-		background: transparent;
-		border: 0;
-		font-family: var(--font-sans);
-	}
-
-	.more-item:hover { background: var(--bg-deep); color: var(--ink); }
-	.more-item.danger { color: oklch(0.5 0.18 25); }
-	.more-item.danger:hover { background: oklch(0.95 0.03 25); }
-
-	/* Search sits center. Selector pierces Svelte scoping to target the
-	   Search component's root element directly. */
-	:global(.top-bar-inner > .search-trigger) {
-		justify-self: center;
-		min-width: 240px;
-		max-width: 420px;
-		width: 100%;
-	}
-
-	/* ══════════════════════════════════════
-	   Responsive — top bar only; DocReader owns its own breakpoints.
-	═══════════════════════════════════════ */
-	@media (max-width: 860px) {
-		.top-bar-inner {
-			grid-template-columns: auto 1fr auto;
-			height: auto;
-			padding: 10px 14px;
-			gap: 10px;
-		}
-	}
-
-	/* Mobile bottom nav — same pattern as the home route. The viewer's
-	   actions cluster moves from the top bar's right slot to a fixed
-	   bottom bar. */
-	@media (max-width: 640px) {
-		.atelier { padding-bottom: 68px; }
-
-		.top-bar-inner { grid-template-columns: auto minmax(0, 1fr); }
-		.brand { min-width: 0; flex-shrink: 1; }
-		.brand :global(.brand-text) { display: none; }
-		.breadcrumb { max-width: 7em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-		.actions {
-			position: fixed;
-			left: 0;
-			right: 0;
-			bottom: 0;
-			padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-			background: var(--bg);
-			border-top: 1px solid var(--rule);
-			justify-content: space-around;
-			gap: 2px;
-			z-index: 40;
-			box-shadow: 0 -12px 24px -16px rgba(0, 0, 0, 0.12);
-			/* Force a new compositing layer so the sticky top-bar ancestor
-			   can't drag the fixed bar along during scroll on mobile
-			   Chromium/WebKit — classic "fixed inside sticky" bug. */
-			transform: translateZ(0);
-			will-change: transform;
-		}
-
-		.action-btn.primary { padding: 0 14px; height: 36px; }
-
-		/* Kebab + UserMenu pop upward on mobile so they don't render off-screen. */
-		.more-menu {
-			top: auto;
-			bottom: calc(100% + 6px);
-			transform-origin: bottom right;
-		}
-
-		.actions :global(.dropdown) {
-			top: auto;
-			bottom: calc(100% + 0.5rem);
-			transform-origin: bottom right;
-		}
-	}
 </style>

@@ -384,3 +384,58 @@ a { color: inherit; text-decoration: none; }
 *::-webkit-scrollbar-thumb:hover {
 	background: color-mix(in oklab, var(--ink) 18%, transparent);
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Mobile bottom-sheet action rows — shared across every sheet (DocReader's
+   tabbed sheet + any page using `$lib/MobileSheet.svelte`). Lives here, not
+   in a scoped component block, because multiple pages render these rows
+   without DocReader on the tree (editor, dashboard); scoped globals would
+   silently disappear on those routes. Classes intentionally BEM-ish so they
+   never leak into unrelated elements.
+   ═══════════════════════════════════════════════════════════════════ */
+.sheet-action {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	padding: 14px 20px;
+	border: 0;
+	border-bottom: 0.5px solid var(--rule);
+	background: none;
+	color: var(--ink);
+	font-family: var(--font-sans);
+	text-align: left;
+	width: 100%;
+	cursor: pointer;
+	text-decoration: none;
+}
+.sheet-action:last-child { border-bottom: 0; }
+.sheet-action__icon {
+	width: 34px;
+	height: 34px;
+	border-radius: 8px;
+	background: var(--chip-bg);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	color: var(--ink);
+}
+.sheet-action__meta { flex: 1; min-width: 0; }
+.sheet-action__label {
+	display: block;
+	font-size: 14.5px;
+	font-weight: 500;
+}
+.sheet-action__hint {
+	display: block;
+	font-size: 12px;
+	color: var(--ink-muted);
+	margin-top: 1px;
+}
+
+/* When the search palette is open it takes the full phone viewport (see
+   `Search.svelte`), so any floating UI below it (DocReader's FAB, the
+   dashboard's FAB) would poke through the scrim-less full-screen layer.
+   The Search component adds `body.search-open` for the duration of the
+   palette — hide floating surfaces while that's true. */
+body.search-open .fab { display: none !important; }

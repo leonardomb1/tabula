@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import BrandLogo from '$lib/BrandLogo.svelte';
 	import DocReader from '$lib/DocReader.svelte';
+	import { autoHideOnScroll } from '$lib/autoHideOnScroll';
 
 	let { data }: { data: PageData } = $props();
 
@@ -14,13 +15,9 @@
 </svelte:head>
 
 <div class="shell">
-	<header class="top-bar">
+	<header class="top-bar" use:autoHideOnScroll>
 		<div class="top-bar-inner">
-			<a class="brand" href="/public">
-				<BrandLogo height={26} />
-				<span class="brand-sep">/</span>
-				<span class="breadcrumb">Público</span>
-			</a>
+			<BrandLogo height={26} href="/public" />
 
 			<span class="spacer"></span>
 
@@ -58,7 +55,11 @@
 		top: 0;
 		z-index: 40;
 		border-bottom: 1px solid var(--rule);
+		padding-top: env(safe-area-inset-top);
+		transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+		will-change: transform;
 	}
+	:global(.top-bar.is-hidden) { transform: translateY(-100%); }
 
 	.top-bar::before {
 		content: '';
@@ -78,25 +79,6 @@
 		display: flex;
 		align-items: center;
 		gap: 16px;
-	}
-
-	.brand {
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-		font-family: var(--font-serif-display);
-		font-size: 20px;
-		font-weight: 600;
-		letter-spacing: -0.01em;
-		color: var(--ink);
-	}
-
-	.brand-sep { color: var(--ink-muted); font-weight: 400; }
-
-	.breadcrumb {
-		font-family: var(--font-sans);
-		font-size: 13px;
-		color: var(--ink-soft);
 	}
 
 	.spacer { flex: 1; }
