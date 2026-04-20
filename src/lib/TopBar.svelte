@@ -8,7 +8,7 @@
 	 *   - Sticky, frosted backdrop (::before).
 	 *   - iOS safe-area-inset-top respected.
 	 *   - Auto-hides on mobile scroll via `autoHideOnScroll`.
-	 *   - Below 720px: action cluster + workspace pill collapse (pages
+	 *   - Below 1024px: action cluster + workspace pill collapse (pages
 	 *     move their actions into a FAB sheet owned by DocReader or
 	 *     MobileSheet; workspace switching goes through UserMenu).
 	 *
@@ -132,22 +132,19 @@
 		width: clamp(240px, 38vw, 420px);
 	}
 
-	@media (max-width: 860px) {
+	/* iPad portrait and smaller — action cluster folds into the page-level
+	   FAB sheet. Workspace switching moves into the UserMenu dropdown, so
+	   the pill and the separator come out too. Layout collapses to
+	   brand | search | user since actions are hidden. */
+	@media (max-width: 1024px) {
 		.top-bar-inner {
 			height: auto;
 			padding: 10px 14px;
 			gap: 10px;
+			grid-template-columns: auto minmax(0, 1fr) auto;
 		}
 		.right-slot { gap: 10px; }
-	}
-
-	/* Phone — action cluster folds into the page-level FAB sheet.
-	   Workspace switching moves into the UserMenu dropdown, so the pill
-	   and the separator come out too. Layout collapses to brand | search |
-	   user since actions are hidden. */
-	@media (max-width: 720px) {
 		.actions { display: none; }
-		.top-bar-inner { grid-template-columns: auto minmax(0, 1fr) auto; }
 		:global(.top-bar-inner > .search-trigger) { width: 100%; }
 		.brand-slot :global(.ws-pill),
 		.brand-sep { display: none; }

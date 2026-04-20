@@ -284,13 +284,13 @@
 		gap: 64px;
 	}
 
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		.index-layout.has-tags { grid-template-columns: 1fr; gap: 20px; }
 	}
 
 	.tag-rail { position: sticky; top: 72px; align-self: start; }
 
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		.tag-rail {
 			position: static;
 			display: flex;
@@ -553,7 +553,7 @@
 		margin: 0;
 	}
 
-	@media (max-width: 860px) {
+	@media (max-width: 1024px) {
 		.top-bar { padding: 10px 14px; height: auto; gap: 10px; }
 		.index-main { padding: 32px 20px 64px; }
 		.index-title { font-size: 36px; }

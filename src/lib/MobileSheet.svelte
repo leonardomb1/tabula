@@ -9,6 +9,7 @@
 	 * snippet. No tab bar, no panels — one flat list.
 	 */
 	import type { Snippet } from 'svelte';
+	import { swipeToClose } from './swipeToClose';
 
 	let {
 		label = 'Menu',
@@ -90,21 +91,22 @@
 	aria-modal="true"
 	aria-label={label}
 	aria-hidden={!open}
+	use:swipeToClose={{ anchor, onClose: close, handle: '.sheet-grabber', enabled: open }}
 >
 	{#if anchor === 'bottom'}
-		<div class="sheet-grabber" aria-hidden="true"></div>
+		<div class="sheet-grabber" aria-hidden="true"><span class="sheet-grabber__bar"></span></div>
 	{/if}
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div class="sheet-body" onclick={close} role="presentation">
 		{@render children()}
 	</div>
 	{#if anchor === 'top'}
-		<div class="sheet-grabber" aria-hidden="true"></div>
+		<div class="sheet-grabber" aria-hidden="true"><span class="sheet-grabber__bar"></span></div>
 	{/if}
 </section>
 
 <style>
-	/* Mobile-only chrome — every rule hides above 720px. The FAB / sheet /
+	/* Mobile-only chrome — every rule hides above 1024px. The FAB / sheet /
 	   scrim share the same display: none baseline and get enabled together
 	   inside the breakpoint below. */
 	.fab,
@@ -189,14 +191,30 @@
 	}
 
 	.sheet.is-open { transform: translateY(0); }
+	/* Swipe-to-close pins the transform inline while dragging — drop the
+	   transition so the finger tracks the sheet 1:1. `data-dragging` is
+	   added by the action at runtime, so the selector has to be :global
+	   to survive Svelte's scoped-CSS stripping. */
+	:global(.sheet[data-dragging]) { transition: none; }
 
+	/* Generous tap target so the grabber is easy to grab; the visible bar is
+	   a child span that stays at the same 4×36 pill size. */
 	.sheet-grabber {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		padding: 10px 0 8px;
+		flex-shrink: 0;
+		cursor: grab;
+		touch-action: none;
+	}
+	.sheet-grabber:active { cursor: grabbing; }
+	.sheet-grabber__bar {
+		display: block;
 		height: 4px;
 		width: 36px;
 		border-radius: 2px;
 		background: var(--rule);
-		margin: 8px auto 12px;
-		flex-shrink: 0;
 	}
 
 	.sheet-body {
@@ -206,7 +224,7 @@
 		-webkit-overflow-scrolling: touch;
 	}
 
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		.fab { display: inline-flex; }
 		.scrim { display: block; }
 		.sheet { display: flex; }

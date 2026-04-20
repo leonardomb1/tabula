@@ -441,7 +441,7 @@
 
 	:global([data-theme='dark']) .err { color: oklch(0.78 0.16 25); }
 
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		.add-row {
 			grid-template-columns: 1fr;
 		}

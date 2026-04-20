@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { docPath } from './ids';
+	import { swipeToClose } from './swipeToClose';
 
 	import type { Snippet } from 'svelte';
 
@@ -88,7 +89,7 @@
 	// directly on the citations tab. The body is {@html}-injected, so we
 	// listen at the container level and filter by click target.
 	function onBodyClickMobile(e: MouseEvent) {
-		if (window.innerWidth > 720) return;
+		if (window.innerWidth > 1024) return;
 		const target = (e.target as HTMLElement).closest?.('.cite-link, sup.cite') as HTMLElement | null;
 		if (!target) return;
 		e.preventDefault();
@@ -109,17 +110,21 @@
 		return Array.isArray(a) ? a.join(', ') : a;
 	});
 
-	// Mobile author strip: two-letter initials from the first author — first
-	// letter of first word + first letter of last word. "Leonardo Machado
-	// Baptista" → "LB". Falls back to "·" if no author is set.
-	const authorInitials = $derived.by(() => {
+	// One entry per author — 2-letter initials ("Leonardo Machado Baptista"
+	// → "LB") plus the original name for aria-label. Splits comma-separated
+	// scalars so legacy `author: "A, B"` frontmatter renders as two people.
+	const authorEntries = $derived.by(() => {
 		const a = doc.frontmatter.author;
-		const first = Array.isArray(a) ? a[0] : a;
-		if (!first) return '·';
-		const parts = String(first).trim().split(/\s+/);
-		const head = parts[0]?.[0] ?? '';
-		const tail = parts.length > 1 ? (parts[parts.length - 1][0] ?? '') : '';
-		return (head + tail).toUpperCase() || '·';
+		if (!a) return [] as { name: string; initials: string }[];
+		const list = Array.isArray(a)
+			? a
+			: String(a).split(/\s*,\s*/).filter(Boolean);
+		return list.map((name) => {
+			const parts = String(name).trim().split(/\s+/);
+			const head = parts[0]?.[0] ?? '';
+			const tail = parts.length > 1 ? (parts[parts.length - 1][0] ?? '') : '';
+			return { name, initials: (head + tail).toUpperCase() || '·' };
+		});
 	});
 
 	// Kicker line on mobile — "● DOCUMENTO FORMAL · 18 DE ABR. DE 2026".
@@ -365,7 +370,20 @@
 		{/if}
 
 		<div class="author-strip">
-			<div class="author-avatar" aria-hidden="true">{authorInitials}</div>
+			{#if authorEntries.length > 0}
+				<div
+					class="author-avatars"
+					class:is-stack={authorEntries.length > 1}
+					aria-hidden="true"
+				>
+					{#each authorEntries.slice(0, 3) as entry}
+						<span class="author-avatar" title={entry.name}>{entry.initials}</span>
+					{/each}
+					{#if authorEntries.length > 3}
+						<span class="author-avatar is-more">+{authorEntries.length - 3}</span>
+					{/if}
+				</div>
+			{/if}
 			<div class="author-names">{authorText ?? 'Sem autor'}</div>
 			<div class="author-time">{doc.readMinutes} min</div>
 		</div>
@@ -373,8 +391,24 @@
 		<div class="doc-byline">
 			{#if authorText}
 				<div class="byline-field">
-					<span class="byline-key">Autor</span>
-					<span>{authorText}</span>
+					<span class="byline-key">{authorEntries.length > 1 ? 'Autores' : 'Autor'}</span>
+					<span class="byline-author">
+						{#if authorEntries.length > 0}
+							<span
+								class="author-avatars byline-avatars"
+								class:is-stack={authorEntries.length > 1}
+								aria-hidden="true"
+							>
+								{#each authorEntries.slice(0, 3) as entry}
+									<span class="author-avatar" title={entry.name}>{entry.initials}</span>
+								{/each}
+								{#if authorEntries.length > 3}
+									<span class="author-avatar is-more">+{authorEntries.length - 3}</span>
+								{/if}
+							</span>
+						{/if}
+						<span>{authorText}</span>
+					</span>
 				</div>
 			{/if}
 			<div class="byline-field">
@@ -454,7 +488,7 @@
 <!-- ════════════════════════════════════════
      Mobile FAB + bottom sheet
      Consolidates actions, TOC, and citations under a single entry
-     point on phone-sized viewports. Hidden above 720px by CSS — the
+     point on phone and iPad-portrait viewports. Hidden above 1024px — the
      desktop rails + top-bar actions cover the same territory there.
 ════════════════════════════════════════ -->
 <button
@@ -486,8 +520,9 @@
 	aria-modal="true"
 	aria-label="Menu do documento"
 	aria-hidden={!sheetOpen}
+	use:swipeToClose={{ anchor: 'bottom', onClose: closeSheet, handle: '.sheet-grabber', enabled: sheetOpen }}
 >
-	<div class="sheet-grabber" aria-hidden="true"></div>
+	<div class="sheet-grabber" aria-hidden="true"><span class="sheet-grabber__bar"></span></div>
 
 	<div class="sheet-tabs" role="tablist">
 		{#if mobileActions}
@@ -758,6 +793,44 @@
 	}
 
 	.byline-field { display: flex; flex-direction: column; gap: 2px; }
+
+	/* Value row of the Autor/Autores field: avatar stack to the left of the
+	   names. `align-items: center` so the circle and the text baseline sit
+	   together despite the line-height difference. */
+	.byline-author { display: inline-flex; align-items: center; gap: 8px; }
+
+	/* Author avatars — used both by the mobile .author-strip (30px) and by
+	   the desktop .doc-byline (22px via .byline-avatars). Stack overlap rings
+	   in the bg so overlapping circles read as distinct discs. */
+	.author-avatars { display: flex; flex-shrink: 0; }
+	.author-avatars.is-stack .author-avatar { box-shadow: 0 0 0 2px var(--bg); }
+	.author-avatars.is-stack .author-avatar + .author-avatar { margin-left: -10px; }
+	.byline-avatars.is-stack .author-avatar + .author-avatar { margin-left: -7px; }
+
+	.author-avatar {
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+		background: var(--ink);
+		color: var(--bg, #fff);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 11px;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		flex-shrink: 0;
+	}
+	.author-avatar.is-more {
+		background: var(--surface);
+		color: var(--ink-soft);
+		border: 1px solid var(--rule);
+	}
+	.byline-avatars .author-avatar {
+		width: 22px;
+		height: 22px;
+		font-size: 9px;
+	}
 
 	.byline-key {
 		font-family: var(--font-sans);
@@ -1131,7 +1204,7 @@
 	:global(body.ai-open) .back-to-top { right: calc(380px + 24px); }
 
 	/* ══════════════════════════════════════
-	   Mobile-only header elements — hidden by default, unveiled below 720px
+	   Mobile-only header elements — hidden by default, unveiled below 1024px
 	   in place of the desktop meta-row / doc-byline.
 	═══════════════════════════════════════ */
 	.kicker-row,
@@ -1139,7 +1212,7 @@
 	.tag-cloud { display: none; }
 
 	/* ══════════════════════════════════════
-	   FAB + bottom sheet — mobile-only (display:none above 720px). FAB is
+	   FAB + bottom sheet — mobile-only (display:none above 1024px). FAB is
 	   always in the tree so Svelte transitions don't hiccup on first open.
 	═══════════════════════════════════════ */
 	.fab {
@@ -1198,14 +1271,24 @@
 		transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1);
 	}
 	.sheet.is-open { transform: translateY(0); }
+	:global(.sheet[data-dragging]) { transition: none; }
 
 	.sheet-grabber {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		padding: 8px 0 4px;
+		flex-shrink: 0;
+		cursor: grab;
+		touch-action: none;
+	}
+	.sheet-grabber:active { cursor: grabbing; }
+	.sheet-grabber__bar {
+		display: block;
 		height: 4px;
 		width: 36px;
 		border-radius: 2px;
 		background: var(--rule);
-		margin: 8px auto 4px;
-		flex-shrink: 0;
 	}
 
 	.sheet-tabs {
@@ -1349,7 +1432,7 @@
 		.toc-rail { display: none; }
 	}
 
-	@media (max-width: 860px) {
+	@media (max-width: 1024px) {
 		.layout { grid-template-columns: minmax(0, 1fr); }
 		.article-scroll { grid-column: 1; }
 		.left-rail { display: none; }
@@ -1360,7 +1443,7 @@
 	   one-line author strip, move tags to a bottom section, and stop
 	   justifying prose (justified text on a ~320-480px column produces
 	   rivers of whitespace that hurt readability). */
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		.meta-row,
 		.doc-byline { display: none; }
 
@@ -1410,20 +1493,6 @@
 			font-family: var(--font-sans);
 		}
 
-		.author-avatar {
-			width: 30px;
-			height: 30px;
-			border-radius: 50%;
-			background: var(--ink);
-			color: var(--bg, #fff);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			font-size: 11px;
-			font-weight: 700;
-			letter-spacing: 0.02em;
-			flex-shrink: 0;
-		}
 		.author-names {
 			flex: 1;
 			min-width: 0;
@@ -1487,7 +1556,7 @@
 	}
 
 	/* Phone: FAB replaces back-to-top; actions live in the sheet. */
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		.fab { display: inline-flex; }
 		.scrim { display: block; }
 		.sheet { display: flex; }

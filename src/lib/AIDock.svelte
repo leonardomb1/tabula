@@ -663,7 +663,7 @@
 
 	:global(body.ai-open) { padding-right: 380px; }
 
-	@media (max-width: 860px) {
+	@media (max-width: 1024px) {
 		#ai-dock { width: 100vw; }
 		:global(body.ai-open) { padding-right: 0; }
 	}

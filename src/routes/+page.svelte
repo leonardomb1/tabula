@@ -334,7 +334,7 @@
 		gap: 64px;
 	}
 
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		/* Mobile collapses the sidebar into a horizontal scrolling chip
 		   row above the doc list — a classic app-style tag filter. The
 		   sticky sidebar was creating layering issues with the doc cards
@@ -352,7 +352,7 @@
 		align-self: start;
 	}
 
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		.tag-rail {
 			position: static;
 			display: flex;
@@ -651,7 +651,7 @@
 	/* ══════════════════════════════════════
 	   Responsive
 	═══════════════════════════════════════ */
-	@media (max-width: 860px) {
+	@media (max-width: 1024px) {
 		.index-main { padding: 32px 20px 64px; }
 		.index-title { font-size: 36px; }
 	}

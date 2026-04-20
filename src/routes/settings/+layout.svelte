@@ -149,7 +149,7 @@
 
 	.content { min-width: 0; }
 
-	@media (max-width: 860px) {
+	@media (max-width: 1024px) {
 		.layout {
 			grid-template-columns: 1fr;
 			gap: 24px;

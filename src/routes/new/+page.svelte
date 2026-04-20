@@ -573,7 +573,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 				>⋯</button>
 			{/if}
 			<!-- Mobile-only: opens the secondary-actions sheet. The button
-			     is `display: none` above 720px; AI / View / History /
+			     is `display: none` above 1024px; AI / View / History /
 			     Delete live in the desktop cluster above. -->
 			<button
 				type="button"
@@ -1305,7 +1305,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	.restore-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 	/* Mobile "more actions" trigger — hidden on desktop; surfaced in the
-	   top bar below 720px where it opens the secondary-actions sheet. */
+	   top bar below 1024px where it opens the secondary-actions sheet. */
 	.mobile-menu-btn {
 		display: none;
 		width: 40px;
@@ -1319,7 +1319,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		cursor: pointer;
 	}
 
-	@media (max-width: 860px) {
+	@media (max-width: 1024px) {
 		.top-bar { flex-wrap: wrap; height: auto; padding: 8px 12px; gap: 6px; }
 
 		.menu-toggle { display: inline-flex; }
@@ -1359,7 +1359,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	   it's central to the editing task and confirms which doc is being
 	   written.
 	═══════════════════════════════════════ */
-	@media (max-width: 720px) {
+	@media (max-width: 1024px) {
 		/* AI toggle + editor-extras kebab live in the FAB sheet now.
 		   UserMenu stays visible — it's where workspace switching and
 		   logout live on phone. */

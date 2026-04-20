@@ -14,7 +14,7 @@
 
 const DELTA = 6;        // px of movement before we act on a direction change
 const SHOW_ZONE = 40;   // always-visible zone at the top of the document
-const MOBILE_BP = 720;  // same breakpoint the mobile reader styles use
+const MOBILE_BP = 1024; // same breakpoint the mobile reader styles use (covers iPad portrait)
 
 export function autoHideOnScroll(node: HTMLElement) {
 	let lastY = window.scrollY;
