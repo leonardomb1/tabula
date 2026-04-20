@@ -86,6 +86,11 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	// CodeMirror.
 	let editorContainer: HTMLDivElement;
 	let previewScrollEl: HTMLDivElement;
+	// Off-switch for the source ↔ preview scroll sync. Useful when the doc
+	// has a large frontmatter block — the source pane has a lot more real
+	// estate than the preview (which doesn't render frontmatter), so the
+	// ratios drift and keeping them locked feels wrong.
+	let scrollSync = $state(true);
 	let editorView: any = null;
 
 	// AI edit
@@ -509,7 +514,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		if (cmScroller && previewScrollEl) {
 			let locked = false;
 			const syncFrom = (src: HTMLElement, dst: HTMLElement) => () => {
-				if (locked) return;
+				if (!scrollSync || locked) return;
 				const srcMax = src.scrollHeight - src.clientHeight;
 				const dstMax = dst.scrollHeight - dst.clientHeight;
 				if (srcMax <= 0 || dstMax <= 0) return;
@@ -690,6 +695,25 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 				<span class="dot" aria-hidden="true"></span>
 				<span>Pré-visualização</span>
 				<div class="pane-actions">
+					<button
+						type="button"
+						class="sync-toggle"
+						class:is-off={!scrollSync}
+						onclick={() => (scrollSync = !scrollSync)}
+						title={scrollSync ? 'Rolagem sincronizada — clique para desativar' : 'Rolagem independente — clique para ativar'}
+						aria-label={scrollSync ? 'Desativar rolagem sincronizada' : 'Ativar rolagem sincronizada'}
+						aria-pressed={scrollSync}
+					>
+						{#if scrollSync}
+							<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+								<path d="M6.5 9.5 9.5 6.5M5.8 10.8l-1.3 1.3a2.2 2.2 0 1 1-3.1-3.1l1.3-1.3m6.6-4.4 1.3-1.3a2.2 2.2 0 1 1 3.1 3.1l-1.3 1.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+							</svg>
+						{:else}
+							<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+								<path d="M6 10 4.5 11.5a2.2 2.2 0 1 1-3.1-3.1L3 7m7-5 1.5-1.5a2.2 2.2 0 1 1 3.1 3.1L13 5M2 2l12 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+							</svg>
+						{/if}
+					</button>
 					<span class="preview-title">{previewTitle}</span>
 				</div>
 			</div>
@@ -1017,6 +1041,19 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	}
 
 	.pane-label .pane-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	/* Icon-only scroll-sync toggle. Square hit target matches `.pane-actions`
+	   height; the `.is-off` state dims the glyph so the broken-link icon
+	   reads as the "off" variant rather than a failure state. */
+	.pane-label .pane-actions .sync-toggle {
+		width: 22px;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.pane-label .pane-actions .sync-toggle.is-off { color: var(--ink-muted); opacity: 0.55; }
+	.pane-label .pane-actions .sync-toggle.is-off:hover { opacity: 1; }
 
 	.preview-title {
 		color: var(--ink-soft);

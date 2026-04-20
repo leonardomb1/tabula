@@ -6,9 +6,17 @@
  * Kept as a module-level $state rune so it survives route navigations
  * within a session. The dock mounts once in +layout.svelte.
  */
-export const aiDock = $state<{ open: boolean; pendingQuery: string | null }>({
+export const aiDock = $state<{
+	open: boolean;
+	pendingQuery: string | null;
+	/** When true, messages go through the agent endpoint (tool use enabled).
+	 *  Default off — explicit opt-in so the AI only acts on workspace state
+	 *  when the user has chosen to let it. */
+	agentMode: boolean;
+}>({
 	open: false,
-	pendingQuery: null
+	pendingQuery: null,
+	agentMode: false
 });
 
 export function toggleAi(): void {
