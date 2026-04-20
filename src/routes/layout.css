@@ -179,6 +179,11 @@ html, body {
 	padding: 0;
 	background: var(--bg);
 	color: var(--ink);
+	/* Clip on both html and body so mobile browsers can't widen the layout
+	   viewport when a child (wide table, oversized figure) overflows —
+	   otherwise `position: fixed` elements like the FAB anchor to the
+	   expanded viewport and get pushed off-screen to the right. */
+	overflow-x: clip;
 }
 body {
 	font-family: var(--font-sans);
@@ -186,7 +191,6 @@ body {
 	line-height: 1.55;
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
-	overflow-x: clip;
 }
 
 button { font: inherit; cursor: pointer; }
@@ -203,6 +207,12 @@ a { color: inherit; text-decoration: none; }
 	overflow-y: hidden;
 	max-width: 100%;
 }
+/* Safety net: any direct child of a rendered doc is capped to its column
+   width and long strings break rather than overflow. Catches odd embeds
+   (iframes, third-party graphs, raw HTML blocks) that the targeted rules
+   above don't enumerate. */
+.doc-body > * { max-width: 100%; }
+.doc-body { overflow-wrap: break-word; word-break: break-word; min-width: 0; }
 
 /* @tailwindcss/typography injects literal `…` backticks around every
    inline <code> via pseudo-elements. Our markdown pipeline already

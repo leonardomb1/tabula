@@ -85,6 +85,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 	// CodeMirror.
 	let editorContainer: HTMLDivElement;
+	let previewScrollEl: HTMLDivElement;
 	let editorView: any = null;
 
 	// AI edit
@@ -497,6 +498,28 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 		editorView = new EditorView({ state, parent: editorContainer });
 		fetchPreview();
+
+		// Two-way scroll sync between source pane and preview. We match scroll
+		// ratios (top / (scrollHeight - clientHeight)) rather than absolute
+		// offsets because the panes have different content heights — that way
+		// reaching the bottom of one lands at the bottom of the other. The
+		// `locked` guard prevents the echo from a programmatic scrollTop set
+		// from bouncing back and fighting the user's drag.
+		const cmScroller = editorContainer.querySelector('.cm-scroller') as HTMLElement | null;
+		if (cmScroller && previewScrollEl) {
+			let locked = false;
+			const syncFrom = (src: HTMLElement, dst: HTMLElement) => () => {
+				if (locked) return;
+				const srcMax = src.scrollHeight - src.clientHeight;
+				const dstMax = dst.scrollHeight - dst.clientHeight;
+				if (srcMax <= 0 || dstMax <= 0) return;
+				locked = true;
+				dst.scrollTop = (src.scrollTop / srcMax) * dstMax;
+				requestAnimationFrame(() => { locked = false; });
+			};
+			cmScroller.addEventListener('scroll', syncFrom(cmScroller, previewScrollEl), { passive: true });
+			previewScrollEl.addEventListener('scroll', syncFrom(previewScrollEl, cmScroller), { passive: true });
+		}
 	});
 </script>
 
@@ -511,19 +534,12 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		<a
 			class="back-btn"
 			href={editingExisting ? docPath(wsId, originalSlug, previewTitle) : `/?ws=${wsId}`}
-			aria-label="Voltar"
+			aria-label={editingExisting ? 'Voltar ao documento' : 'Voltar ao workspace'}
 			title={editingExisting ? 'Voltar ao documento' : 'Voltar ao workspace'}
 		>
 			<svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
 				<path d="m15 6-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
 			</svg>
-			<span class="back-label">
-				{#if editingExisting}
-					<span class="slug-readonly" title="URL imutável — edite o título no conteúdo">{slug}</span>
-				{:else}
-					<span class="slug-readonly is-draft">rascunho</span>
-				{/if}
-			</span>
 		</a>
 
 		<div class="spacer"></div>
@@ -563,7 +579,17 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 					<button class="extras-btn" onclick={() => (historyOpen = !historyOpen)} title="Histórico de versões">
 						⏱ {history.length}
 					</button>
-					<button class="extras-btn danger" onclick={deleteDoc}>Excluir</button>
+					<button
+						type="button"
+						class="extras-btn danger icon-only"
+						onclick={deleteDoc}
+						title="Excluir documento"
+						aria-label="Excluir documento"
+					>
+						<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+							<path d="M3 4h10M6 4V2.5h4V4M4 4v9a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					</button>
 				</div>
 				<button
 					class="menu-toggle"
@@ -667,7 +693,7 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 					<span class="preview-title">{previewTitle}</span>
 				</div>
 			</div>
-			<div class="preview-scroll">
+			<div class="preview-scroll" bind:this={previewScrollEl}>
 				<article class="doc-body prose">
 					{@html previewHtml}
 				</article>
@@ -759,34 +785,6 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	.back-btn:hover { background: var(--surface); color: var(--ink); }
 	.back-btn svg { flex-shrink: 0; }
 
-	.back-label {
-		display: inline-flex;
-		align-items: center;
-		min-width: 0;
-		padding: 2px 8px;
-		background: var(--surface);
-		border: 1px solid var(--rule);
-		border-radius: 4px;
-		font-family: var(--font-mono);
-		font-size: 12.5px;
-	}
-
-	/* Read-only slug display — slugs are server-minted now, not user-typed. */
-	.slug-readonly {
-		color: var(--ink);
-		font: inherit;
-		user-select: text;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.slug-readonly.is-draft {
-		color: var(--ink-muted);
-		font-style: italic;
-	}
-
 	.spacer { flex: 1; }
 
 	.autosave {
@@ -859,6 +857,15 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	.extras-btn.danger { color: oklch(0.55 0.18 25); }
 	:global([data-theme='dark']) .extras-btn.danger { color: oklch(0.75 0.15 25); }
 	.extras-btn.danger:hover { border-color: oklch(0.55 0.18 25); }
+
+	/* Icon-only variant — collapse the horizontal padding so the trash glyph
+	   sits in a tight square that matches the reader's `.icon-btn` metrics. */
+	.extras-btn.icon-only {
+		width: 32px;
+		padding: 0;
+		justify-content: center;
+		gap: 0;
+	}
 
 	.ai-toggle {
 		display: inline-grid;
@@ -1395,13 +1402,6 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 	@media (max-width: 640px) {
 		.back-btn { padding: 4px 6px; min-width: 0; }
-		.back-label {
-			/* Let the slug ellipsize when the row gets tight so Save + ⋯
-			   always stay visible. */
-			min-width: 0;
-			flex: 0 1 auto;
-			max-width: 40vw;
-		}
 		.autosave { display: none; }
 	}
 </style>
