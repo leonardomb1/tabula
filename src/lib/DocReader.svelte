@@ -1011,7 +1011,11 @@
 	}
 
 	:global(.prose.doc-body table) {
-		width: 100%;
+		/* Fill the wrapper when content fits, but let the table grow past it
+		   (and scroll inside `.table-wrap`) when cells demand more room —
+		   avoids the mobile "everything breaks character-by-character" look. */
+		width: auto;
+		min-width: 100%;
 		font-family: var(--font-sans);
 		font-size: 14px;
 		line-height: 1.45;

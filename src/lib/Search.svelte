@@ -64,14 +64,41 @@
 		debounce = setTimeout(() => runSearch(query), 180);
 	}
 
+	// Push a sentinel history entry when the palette opens so the browser /
+	// hardware back gesture closes it instead of leaving the app. On close
+	// we pop that entry only if it's still ours — so programmatic closes
+	// don't leave a stray history entry around, and a user-initiated back
+	// (popstate) closes the palette without double-popping.
+	let pushedHistory = false;
 	function openPalette() {
 		open = true;
 		setTimeout(() => inputEl?.focus(), 30);
+		if (typeof history !== 'undefined' && !pushedHistory) {
+			history.pushState({ tabulaSearchOpen: true }, '');
+			pushedHistory = true;
+		}
 	}
 
 	function closePalette() {
 		open = false;
-		// Keep query between openings — feels nicer when re-opening after a quick close.
+		if (pushedHistory && typeof history !== 'undefined') {
+			pushedHistory = false;
+			if (history.state?.tabulaSearchOpen) history.back();
+		}
+	}
+
+	function onPopState() {
+		if (open) {
+			pushedHistory = false;
+			open = false;
+		}
+	}
+
+	function clearQuery() {
+		query = '';
+		results = [];
+		activeIdx = 0;
+		inputEl?.focus();
 	}
 
 	// Signal globally that the search palette is open. Lets other
@@ -154,7 +181,11 @@
 
 	onMount(() => {
 		window.addEventListener('keydown', onGlobalKey);
-		return () => window.removeEventListener('keydown', onGlobalKey);
+		window.addEventListener('popstate', onPopState);
+		return () => {
+			window.removeEventListener('keydown', onGlobalKey);
+			window.removeEventListener('popstate', onPopState);
+		};
 	});
 </script>
 
@@ -180,7 +211,15 @@
 	<div class="palette-backdrop" onmousedown={onBackdropMousedown}>
 		<div class="palette" role="dialog" aria-label="Buscar">
 			<div class="palette-search">
-				<svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+				<!-- Mobile: back arrow as the primary dismiss affordance (YouTube
+				     pattern). Hidden on desktop where the magnifier glyph + Esc
+				     carry the job. -->
+				<button type="button" class="back-btn" onclick={closePalette} aria-label="Voltar">
+					<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+						<path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+				<svg class="lead-icon" width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
 					<circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.5" />
 					<path d="M13 13l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
 				</svg>
@@ -197,12 +236,17 @@
 				{#if loading}
 					<span class="spinner" aria-hidden="true"></span>
 				{/if}
+				<!-- Clear button — only when there's text to clear. On mobile
+				     it's the trailing affordance; on desktop it sits next to
+				     the Esc chip. -->
+				{#if query}
+					<button type="button" class="clear-btn" onclick={clearQuery} aria-label="Limpar busca">
+						<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+							<path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+						</svg>
+					</button>
+				{/if}
 				<span class="esc">esc</span>
-				<button type="button" class="close-btn" onclick={closePalette} aria-label="Fechar busca">
-					<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-						<path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-					</svg>
-				</button>
 			</div>
 
 			<div class="palette-results" bind:this={resultsEl}>
@@ -364,6 +408,43 @@
 		border-bottom: 1px solid var(--rule);
 		color: var(--ink-muted);
 	}
+
+	/* Back button lives in the tree at every breakpoint so Svelte doesn't
+	   churn nodes on resize; CSS decides when it's visible. Hidden on
+	   desktop — Esc / click-outside cover dismissal there. */
+	.back-btn {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		margin: -8px -4px -8px -8px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--ink);
+		border-radius: 999px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.back-btn:hover { background: var(--bg-deep); }
+	.back-btn:active { transform: scale(0.94); }
+
+	.clear-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: var(--ink-muted);
+		border-radius: 999px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.clear-btn:hover { background: var(--bg-deep); color: var(--ink); }
 
 	.palette-search input {
 		flex: 1;
@@ -559,26 +640,11 @@
 		.palette-search { padding-top: calc(env(safe-area-inset-top) + 14px); }
 		.palette-item .pi-sub { display: none; }
 
-		/* Keyboard-centric hints belong on desktop. On phone we show just a
-		   close X (already in the search row) and nothing at the bottom
-		   — the AI handoff is reachable via the FAB sheet anyway. */
+		/* Swap leading affordance: hide the decorative magnifier, show the
+		   back arrow. Esc chip / keyboard hints belong on desktop. */
+		.lead-icon { display: none; }
+		.back-btn { display: inline-flex; }
 		.palette-search .esc { display: none; }
 		.palette-foot { display: none; }
-		.close-btn {
-			display: inline-flex;
-			align-items: center;
-			justify-content: center;
-			width: 34px;
-			height: 34px;
-			border: 0;
-			background: transparent;
-			color: var(--ink-muted);
-			cursor: pointer;
-			flex-shrink: 0;
-		}
 	}
-
-	/* On desktop the close-X is superfluous — Esc + the kbd chip already
-	   communicate how to dismiss. Hide unless we're on phone. */
-	.close-btn { display: none; }
 </style>

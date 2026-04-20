@@ -208,11 +208,20 @@ a { color: inherit; text-decoration: none; }
 	max-width: 100%;
 }
 /* Safety net: any direct child of a rendered doc is capped to its column
-   width and long strings break rather than overflow. Catches odd embeds
-   (iframes, third-party graphs, raw HTML blocks) that the targeted rules
-   above don't enumerate. */
+   width so odd embeds (iframes, third-party graphs, raw HTML blocks) can't
+   blow the page wider than the viewport. Tables are deliberately exempt —
+   they size to their wrapper and scroll internally via `.table-wrap`. */
 .doc-body > * { max-width: 100%; }
-.doc-body { overflow-wrap: break-word; word-break: break-word; min-width: 0; }
+.doc-body { overflow-wrap: break-word; min-width: 0; }
+/* Tables: never character-break cell text. Cells should ellipsize or force
+   the table to widen (then `.table-wrap` scrolls horizontally) rather than
+   mangling words across lines. */
+.doc-body table,
+.doc-body th,
+.doc-body td {
+	overflow-wrap: normal;
+	word-break: normal;
+}
 
 /* @tailwindcss/typography injects literal `…` backticks around every
    inline <code> via pseudo-elements. Our markdown pipeline already
