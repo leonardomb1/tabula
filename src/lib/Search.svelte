@@ -4,6 +4,7 @@
 	import type { SearchResult } from '../routes/api/search/+server';
 	import { openAiWith } from './aiDock.svelte';
 	import { docPath } from './ids';
+	import { portal } from './portal';
 
 	type Heading = { id: string; text: string; level: number };
 
@@ -208,7 +209,11 @@
 {#if open}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="palette-backdrop" onmousedown={onBackdropMousedown}>
+	<!-- Portal to <body>: TopBar sets `will-change: transform`, which makes
+	     the top-bar a containing block for `position: fixed` descendants,
+	     clamping the backdrop's `inset: 0` to the top-bar's box. Moving the
+	     node to body side-steps that. -->
+	<div class="palette-backdrop" use:portal onmousedown={onBackdropMousedown}>
 		<div class="palette" role="dialog" aria-label="Buscar">
 			<div class="palette-search">
 				<!-- Mobile: back arrow as the primary dismiss affordance (YouTube

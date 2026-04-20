@@ -2,16 +2,12 @@ import { json, error } from '@sveltejs/kit';
 import matter from 'gray-matter';
 import { exists, getText, putText } from '$lib/server/storage';
 import { upsertDoc, slugToKey, historyPrefix } from '$lib/server/docsIndex';
-import { DEFAULT_WS_ID, canWrite } from '$lib/server/workspaces';
+import { canWrite, isRoutableWsId } from '$lib/server/workspaces';
 import { newDocId } from '$lib/ids';
 import type { RequestHandler } from './$types';
 
 function validSlug(s: unknown): s is string {
 	return typeof s === 'string' && /^[a-zA-Z0-9_-]+$/.test(s);
-}
-
-function validWsId(s: unknown): s is string {
-	return typeof s === 'string' && /^[a-z0-9-]+$/.test(s);
 }
 
 async function snapshot(wsId: string, slug: string): Promise<void> {
@@ -36,9 +32,9 @@ async function mintUniqueId(wsId: string): Promise<string> {
 
 export const POST: RequestHandler = async ({ request, url, locals }) => {
 	const { slug, content } = await request.json();
-	const wsParam = url.searchParams.get('ws');
-	const wsId = validWsId(wsParam) ? wsParam : DEFAULT_WS_ID;
+	const wsId = url.searchParams.get('ws');
 
+	if (!isRoutableWsId(wsId)) error(400, 'Workspace inválido');
 	if (!content || typeof content !== 'string') error(400, 'Conteúdo obrigatório');
 	if (slug !== undefined && !validSlug(slug)) error(400, 'Slug inválido');
 

@@ -25,6 +25,27 @@ export { ROLES, type Role };
 export const DEFAULT_WS_ID = 'default';
 export const PERSONAL_PREFIX = 'personal-';
 
+/**
+ * Accepts any workspace id we might be asked to route to. Team ids are the
+ * strict `[a-z0-9-]+` created via admin UI. Personal ids are `personal-<u>`
+ * where `<u>` is the user's raw username — which, over OIDC, can include
+ * uppercase letters, dots, `@`, and underscores (think email-style subjects
+ * or `preferred_username`). The strict team regex rejects those and was
+ * causing 403/400s on write paths when non-admin users tried to edit in
+ * their own personal workspace. Still blocks path-traversal (no `/`, no
+ * `..`) because this id ends up in storage keys.
+ */
+const PERSONAL_USERNAME_RE = /^[a-zA-Z0-9._@-]+$/;
+export function isRoutableWsId(s: unknown): s is string {
+	if (typeof s !== 'string' || s.length < 2 || s.length > 128) return false;
+	if (s.includes('..') || s.includes('/')) return false;
+	if (s.startsWith(PERSONAL_PREFIX)) {
+		const rest = s.slice(PERSONAL_PREFIX.length);
+		return rest.length > 0 && PERSONAL_USERNAME_RE.test(rest);
+	}
+	return /^[a-z0-9-]+$/.test(s);
+}
+
 export interface Workspace {
 	id: string;
 	name: string;

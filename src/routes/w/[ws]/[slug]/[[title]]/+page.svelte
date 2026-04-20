@@ -72,6 +72,20 @@
 					<path d="m6 10-1-1 1-1M10 8l1 1-1 1M7.8 11 8.6 8" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
 				</svg>
 			</a>
+			{#if data.frontmatter.formal}
+				<button
+					type="button"
+					class="action-btn icon-btn"
+					onclick={() => (previewOpen = true)}
+					title="Exportar PDF"
+					aria-label="Exportar PDF"
+				>
+					<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+						<path d="M3 3h6.5L13 6.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+						<text x="8" y="11.5" text-anchor="middle" font-size="4.2" font-weight="700" fill="currentColor" font-family="var(--font-sans)">PDF</text>
+					</svg>
+				</button>
+			{/if}
 			{#if data.frontmatter.public}
 				<button
 					type="button"
@@ -90,20 +104,6 @@
 							<path d="M8 2v9m0-9-2.5 2.5M8 2l2.5 2.5M3.5 9.5v3a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
 						</svg>
 					{/if}
-				</button>
-			{/if}
-			{#if data.frontmatter.formal}
-				<button
-					type="button"
-					class="action-btn icon-btn"
-					onclick={() => (previewOpen = true)}
-					title="Exportar PDF"
-					aria-label="Exportar PDF"
-				>
-					<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-						<path d="M3 3h6.5L13 6.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-						<text x="8" y="11.5" text-anchor="middle" font-size="4.2" font-weight="700" fill="currentColor" font-family="var(--font-sans)">PDF</text>
-					</svg>
 				</button>
 			{/if}
 			{#if canWrite}
@@ -175,7 +175,9 @@
 	{#if data.frontmatter.public}
 		<button type="button" class="sheet-action" onclick={copyPublicLink}>
 			<span class="sheet-action__icon" aria-hidden="true">
-				<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 10 10 6M5 10.5 3 8.5a2 2 0 1 1 2.8-2.8l1 1M11 5.5l1-1a2 2 0 1 1 2.8 2.8l-2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+					<path d="M8 2v9m0-9-2.5 2.5M8 2l2.5 2.5M3.5 9.5v3a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>
 			</span>
 			<span class="sheet-action__meta">
 				<span class="sheet-action__label">{copied ? 'Link copiado' : 'Copiar link público'}</span>

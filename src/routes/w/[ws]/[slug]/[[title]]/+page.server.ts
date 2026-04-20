@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { renderMarkdown } from '$lib/markdown';
 import { getDoc, findBacklinks } from '$lib/server/docsIndex';
-import { getForUser, getRole, listForUser } from '$lib/server/workspaces';
+import { getForUser, getRole, isRoutableWsId, listForUser } from '$lib/server/workspaces';
 import { slugifyTitle } from '$lib/ids';
 import {
 	getStyleForTemplate,
@@ -16,7 +16,7 @@ export const load: PageServerLoad = async ({ params, locals, cookies, url }) => 
 	const { ws: wsId, slug } = params;
 	const titleSeg = params.title ?? '';
 	if (!/^[a-zA-Z0-9_-]+$/.test(slug)) error(400, 'Slug inválido');
-	if (!/^[a-z0-9-]+$/.test(wsId)) error(400, 'Workspace inválido');
+	if (!isRoutableWsId(wsId)) error(400, 'Workspace inválido');
 	if (titleSeg && !/^[a-z0-9-]+$/.test(titleSeg)) error(400, 'Título inválido');
 
 	// Access check — 404 (not 403) so we don't leak ws ids to non-members.
