@@ -1415,17 +1415,22 @@
 		transition: padding-right 0.28s cubic-bezier(0.2, 0.7, 0.2, 1);
 	}
 
-	:global(body.ai-open) { padding-right: 380px; }
+	/* Default: dock overlays content. At typical laptop / desktop widths
+	   (1280-1920), stealing 380px via `padding-right` pushes the top
+	   bar's brand/search/actions into a cramped layout — the empirical
+	   "all elements comfortable" minimum is ~1420px content width, so
+	   even 1920 leaves ~1540px and the navbar breathes only marginally.
+	   Overlay on by default keeps full-width content everywhere and the
+	   dock floats on top of the right edge; users close it to see
+	   what's underneath (same pattern as ChatGPT / Cursor's right pane
+	   on smaller monitors, but consistent across sizes). */
+	:global(body.ai-open) { padding-right: 0; }
 
-	/* Overlay mode below ~1404px — mobile breakpoint (1024) plus the
-	   dock's own 380px. In this band the push-behavior would shrink the
-	   top bar's effective width into mobile territory, squashing the
-	   brand/search/actions row. Switching to overlay keeps content
-	   full-width; the dock floats on top of the right side of the page
-	   and users close it to see what's underneath (same pattern the
-	   1024px block already uses for phones). */
-	@media (max-width: 1404px) {
-		:global(body.ai-open) { padding-right: 0; }
+	/* Push mode only on genuinely wide displays where 380px lost to the
+	   dock still leaves ≥1420px for the navbar. 1800 → 1420 is the
+	   floor; most ultrawide / 4K setups start there or wider. */
+	@media (min-width: 1800px) {
+		:global(body.ai-open) { padding-right: 380px; }
 	}
 
 	@media (max-width: 1024px) {
