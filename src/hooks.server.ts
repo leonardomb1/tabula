@@ -7,7 +7,17 @@ import {
 	findPublicDocMarkdown
 } from '$lib/server/publicMarkdown';
 
-const PUBLIC_PATHS = ['/login', '/public', '/api/attachments/', '/api/branding/', '/auth/'];
+const PUBLIC_PATHS = [
+	'/login',
+	'/public',
+	'/api/attachments/',
+	'/api/branding/',
+	'/auth/',
+	// Discovery endpoints for crawlers / agents — must bypass auth so
+	// search engines can fetch them without a session cookie.
+	'/sitemap.xml',
+	'/robots.txt'
+];
 
 // `/public`, `/public/<slug>`, `/public/<slug>/<title>` — the three
 // shapes we short-circuit into a raw-markdown response when the client
