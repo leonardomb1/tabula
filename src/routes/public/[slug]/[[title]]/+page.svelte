@@ -4,14 +4,28 @@
 	import BrandLogo from '$lib/BrandLogo.svelte';
 	import DocReader from '$lib/DocReader.svelte';
 	import { autoHideOnScroll } from '$lib/autoHideOnScroll';
+	import { slugifyTitle } from '$lib/ids';
 
 	let { data }: { data: PageData } = $props();
 
 	const loggedIn = $derived($page.data.user != null);
+
+	// Canonical URL — matches the 301 target the server emits when a bare
+	// `/public/<slug>` or a stale title segment is requested. Declaring it
+	// here keeps crawlers that land on a variant form indexing only the
+	// canonical one, and the sitemap lists the same shape.
+	const canonicalUrl = $derived.by(() => {
+		const titleSeg = slugifyTitle(data.title);
+		const path = titleSeg
+			? `/public/${data.slug}/${titleSeg}`
+			: `/public/${data.slug}`;
+		return `${$page.url.origin}${path}`;
+	});
 </script>
 
 <svelte:head>
 	<title>{data.title}</title>
+	<link rel="canonical" href={canonicalUrl} />
 </svelte:head>
 
 <div class="shell">

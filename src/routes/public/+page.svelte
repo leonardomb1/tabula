@@ -39,6 +39,7 @@
 
 <svelte:head>
 	<title>{brandName} · Público</title>
+	<link rel="canonical" href="{$page.url.origin}/public" />
 </svelte:head>
 
 <div class="atelier">
