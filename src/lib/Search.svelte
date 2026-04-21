@@ -80,12 +80,20 @@
 		}
 	}
 
-	function closePalette() {
+	/**
+	 * @param preserveHistory Pass true when the caller is about to navigate
+	 * away (pickDoc / handoffToAi). In that case `goto()` replaces the
+	 * history entry naturally — calling `history.back()` here would race
+	 * with it: the popstate fires after `goto` and the browser ends up
+	 * navigating back instead of forward to the target.
+	 */
+	function closePalette(preserveHistory = false) {
 		open = false;
-		if (pushedHistory && typeof history !== 'undefined') {
+		if (!preserveHistory && pushedHistory && typeof history !== 'undefined') {
 			pushedHistory = false;
 			if (history.state?.tabulaSearchOpen) history.back();
 		}
+		if (preserveHistory) pushedHistory = false;
 	}
 
 	function onPopState() {
@@ -112,11 +120,13 @@
 	});
 
 	function pickDoc(r: SearchResult) {
-		closePalette();
+		closePalette(true);
 		goto(docPath(r.wsId, r.slug, r.title));
 	}
 
 	function pickHeading(h: Heading) {
+		// In-page scroll doesn't create a new navigation entry, so the
+		// sentinel still has to be popped — normal close.
 		closePalette();
 		const el = document.getElementById(h.id);
 		if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -133,6 +143,9 @@
 	function handoffToAi() {
 		const q = query.trim();
 		if (!q) return;
+		// AI handoff doesn't navigate, but it opens the dock which is a
+		// destination the user would want to back out of cleanly — treat
+		// as a normal close.
 		closePalette();
 		openAiWith(q);
 	}
@@ -219,7 +232,7 @@
 				<!-- Mobile: back arrow as the primary dismiss affordance (YouTube
 				     pattern). Hidden on desktop where the magnifier glyph + Esc
 				     carry the job. -->
-				<button type="button" class="back-btn" onclick={closePalette} aria-label="Voltar">
+				<button type="button" class="back-btn" onclick={() => closePalette()} aria-label="Voltar">
 					<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
 						<path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
 					</svg>

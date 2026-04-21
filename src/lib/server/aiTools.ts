@@ -30,6 +30,11 @@ export interface ToolContext {
 	user: SessionInfo;
 	currentWs: string | null;
 	currentSlug: string | null;
+	/** Live editor buffer when the user is on /new. `slug` is null for a
+	 *  fresh draft. Tools that target this doc should prefer this over
+	 *  the saved file on disk, which may be stale relative to what the
+	 *  user is actually looking at. */
+	currentEditor: { slug: string | null; wsId: string | null; content: string } | null;
 }
 
 /**
@@ -47,6 +52,7 @@ export type ToolOutcome =
  */
 export type ClientAction =
 	| { kind: 'navigate'; path: string }
+	| { kind: 'switch_workspace'; wsId: string; wsName: string }
 	| {
 			kind: 'propose_new_document';
 			wsId: string;
@@ -76,6 +82,70 @@ export interface ToolDef {
 
 const MAX_FETCH_BYTES = 80_000;
 const FETCH_TIMEOUT_MS = 10_000;
+const SEARCH_TIMEOUT_MS = 12_000;
+
+/**
+ * Small wrapper around `fetch` that adds an abort timeout and JSON parse.
+ * Keeps the search-tool executors free of boilerplate.
+ */
+async function fetchJson<T>(
+	url: string,
+	opts: { headers?: Record<string, string>; timeoutMs?: number } = {}
+): Promise<{ ok: true; data: T } | { ok: false; error: string; status?: number }> {
+	const ac = new AbortController();
+	const timer = setTimeout(() => ac.abort(), opts.timeoutMs ?? SEARCH_TIMEOUT_MS);
+	try {
+		const res = await fetch(url, {
+			headers: { Accept: 'application/json', ...(opts.headers ?? {}) },
+			signal: ac.signal
+		});
+		if (!res.ok) {
+			return { ok: false, error: `resposta ${res.status}`, status: res.status };
+		}
+		// `Response.json()` is typed `Promise<any>`, so this flows into T
+		// without an explicit cast — no `as T` / unknown gymnastics.
+		const data: T = await res.json();
+		return { ok: true, data };
+	} catch (e) {
+		return { ok: false, error: e instanceof Error ? e.message : 'falha na consulta' };
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/**
+ * OpenAlex stores abstracts as `{word: [positions...]}` — an inverted
+ * index saved that way to avoid copyright concerns on the raw text.
+ * Reconstruct the linear sentence so the model can actually read it.
+ */
+function reconstructAbstract(inv: Record<string, number[]> | null | undefined): string | null {
+	if (!inv || typeof inv !== 'object') return null;
+	const pairs: Array<[number, string]> = [];
+	for (const [word, positions] of Object.entries(inv)) {
+		if (!Array.isArray(positions)) continue;
+		for (const p of positions) pairs.push([p, word]);
+	}
+	if (pairs.length === 0) return null;
+	pairs.sort((a, b) => a[0] - b[0]);
+	return pairs.map(([, w]) => w).join(' ');
+}
+
+/**
+ * Stack Exchange response bodies are HTML. The model doesn't need markup,
+ * just the prose — strip tags and entities to a flat string.
+ */
+function stripHtml(html: string): string {
+	return html
+		.replace(/<[^>]+>/g, ' ')
+		.replace(/&nbsp;/g, ' ')
+		.replace(/&amp;/g, '&')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/\s+/g, ' ')
+		.trim();
+}
 
 function asString(v: unknown): string | null {
 	return typeof v === 'string' && v.trim() ? v : null;
@@ -159,8 +229,36 @@ const readDocument: ToolDef = {
 		if (!(await canAccess(ctx.user, wsId))) {
 			return { ok: false, error: 'Sem acesso a esse workspace' };
 		}
+		// Prefer the live editor buffer when the user is currently editing
+		// this exact doc — they may have unsaved changes that the disk
+		// file doesn't reflect. Fall through to the saved file otherwise.
+		if (
+			ctx.currentEditor &&
+			ctx.currentEditor.slug === slug &&
+			ctx.currentEditor.wsId === wsId
+		) {
+			return {
+				ok: true,
+				data: {
+					wsId,
+					slug,
+					source: ctx.currentEditor.content,
+					fromLiveBuffer: true,
+					note: 'Conteúdo vem do buffer do editor (pode ter alterações não salvas).'
+				}
+			};
+		}
 		const doc = await getDoc(wsId, slug);
-		if (!doc) return { ok: false, error: 'Documento não encontrado' };
+		if (!doc) {
+			const hint =
+				ctx.currentSlug && ctx.currentWs === wsId
+					? ` O usuário está atualmente visualizando "${ctx.currentSlug}" neste mesmo workspace — use esse slug se o pedido era sobre "este documento".`
+					: '';
+			return {
+				ok: false,
+				error: `Documento "${slug}" não encontrado no workspace "${wsId}".${hint}`
+			};
+		}
 		return {
 			ok: true,
 			data: { wsId, slug, title: doc.title, source: doc.source, mtime: doc.mtime }
@@ -290,6 +388,170 @@ const fetchUrl: ToolDef = {
 	}
 };
 
+// ─── Research tools (gated behind AI_WEB_RESEARCH env) ───────────────────
+//
+// Three targeted search APIs: OpenAlex for academic literature,
+// Stack Exchange for practical engineering Q&A, Brave for general web.
+// Each executor bounds the result count and trims long fields so the
+// model's context budget stays tight. All three respect a global
+// `AI_WEB_RESEARCH` env flag; Brave additionally requires a key.
+
+interface OpenAlexWork {
+	title?: string | null;
+	publication_year?: number | null;
+	cited_by_count?: number;
+	doi?: string | null;
+	id?: string;
+	abstract_inverted_index?: Record<string, number[]> | null;
+	authorships?: Array<{ author?: { display_name?: string } }>;
+	best_oa_location?: { pdf_url?: string | null; landing_page_url?: string | null } | null;
+}
+
+const searchAcademic: ToolDef = {
+	name: 'search_academic',
+	description:
+		'Search peer-reviewed / academic literature via OpenAlex (250M+ works — the open successor to Microsoft Academic). Returns up to 8 papers with title, authors, year, abstract excerpt, citation count, and DOI. Best for research questions, bibliography building, and claim verification against published work.',
+	input_schema: {
+		type: 'object',
+		properties: {
+			query: {
+				type: 'string',
+				description: 'Free-text search — title keywords, topic phrase, or author name.'
+			}
+		},
+		required: ['query']
+	},
+	async execute(_ctx, input) {
+		const query = asString(input.query);
+		if (!query) return { ok: false, error: 'query é obrigatório' };
+		// OpenAlex asks API users to identify themselves in the User-Agent
+		// ("polite pool") for better rate-limit treatment.
+		const url = `https://api.openalex.org/works?search=${encodeURIComponent(query)}&per-page=8`;
+		const res = await fetchJson<{ results?: OpenAlexWork[] }>(url, {
+			headers: { 'User-Agent': 'tabula-ai-agent (mailto:admin@tabula.local)' }
+		});
+		if (!res.ok) return { ok: false, error: `OpenAlex: ${res.error}` };
+		const results = res.data.results ?? [];
+		const hits = results.map((w) => {
+			const abstract = reconstructAbstract(w.abstract_inverted_index);
+			return {
+				title: w.title,
+				authors: (w.authorships ?? [])
+					.slice(0, 5)
+					.map((a) => a.author?.display_name)
+					.filter((n): n is string => !!n),
+				year: w.publication_year,
+				citationCount: w.cited_by_count ?? 0,
+				doi: w.doi,
+				openAccessUrl: w.best_oa_location?.pdf_url ?? w.best_oa_location?.landing_page_url ?? null,
+				abstract: abstract ? abstract.slice(0, 500) : null,
+				openAlexId: w.id
+			};
+		});
+		return { ok: true, data: hits };
+	}
+};
+
+interface StackExchangeItem {
+	title?: string;
+	link?: string;
+	score?: number;
+	answer_count?: number;
+	is_answered?: boolean;
+	creation_date?: number;
+	tags?: string[];
+	body?: string;
+}
+
+const searchStackoverflow: ToolDef = {
+	name: 'search_stackoverflow',
+	description:
+		'Search Stack Overflow for technical Q&A. Returns up to 8 relevant questions with title, score, answer count, tags, excerpt, and URL. Best for "how do I…", debugging, and concrete implementation questions.',
+	input_schema: {
+		type: 'object',
+		properties: {
+			query: {
+				type: 'string',
+				description: 'Free-text search — error message, concept, or phrasing users would type.'
+			}
+		},
+		required: ['query']
+	},
+	async execute(_ctx, input) {
+		const query = asString(input.query);
+		if (!query) return { ok: false, error: 'query é obrigatório' };
+		const params = new URLSearchParams({
+			order: 'desc',
+			sort: 'relevance',
+			q: query,
+			site: 'stackoverflow',
+			pagesize: '8',
+			filter: 'withbody'
+		});
+		// STACK_EXCHANGE_KEY is optional — without it we get 300/day per IP;
+		// with it the quota rises to 10K/day.
+		if (process.env.STACK_EXCHANGE_KEY) params.set('key', process.env.STACK_EXCHANGE_KEY);
+		const url = `https://api.stackexchange.com/2.3/search/advanced?${params}`;
+		const res = await fetchJson<{ items?: StackExchangeItem[] }>(url);
+		if (!res.ok) return { ok: false, error: `Stack Exchange: ${res.error}` };
+		const items = res.data.items ?? [];
+		const hits = items.map((q) => ({
+			title: q.title,
+			url: q.link,
+			score: q.score,
+			answers: q.answer_count,
+			hasAcceptedAnswer: q.is_answered === true,
+			tags: q.tags ?? [],
+			excerpt: q.body ? stripHtml(q.body).slice(0, 400) : null
+		}));
+		return { ok: true, data: hits };
+	}
+};
+
+interface BraveResult {
+	title?: string;
+	url?: string;
+	description?: string;
+	page_age?: string;
+}
+interface BraveResponse {
+	web?: { results?: BraveResult[] };
+}
+
+const searchWeb: ToolDef = {
+	name: 'search_web',
+	description:
+		'General web search via Brave. Returns up to 8 results with title, URL, description, and page age. Use only when `search_academic` or `search_stackoverflow` don\'t fit — e.g., news, product pages, vendor docs, recent events.',
+	input_schema: {
+		type: 'object',
+		properties: {
+			query: { type: 'string', description: 'Free-text search query.' }
+		},
+		required: ['query']
+	},
+	async execute(_ctx, input) {
+		const query = asString(input.query);
+		if (!query) return { ok: false, error: 'query é obrigatório' };
+		const key = process.env.BRAVE_API_KEY;
+		if (!key) {
+			return { ok: false, error: 'Busca web não configurada no servidor (BRAVE_API_KEY ausente)' };
+		}
+		const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=8`;
+		const res = await fetchJson<BraveResponse>(url, {
+			headers: { 'X-Subscription-Token': key }
+		});
+		if (!res.ok) return { ok: false, error: `Brave: ${res.error}` };
+		const results = res.data.web?.results ?? [];
+		const hits = results.map((r) => ({
+			title: r.title,
+			url: r.url,
+			description: r.description ? stripHtml(r.description).slice(0, 300) : null,
+			pageAge: r.page_age ?? null
+		}));
+		return { ok: true, data: hits };
+	}
+};
+
 const proposeNewDocument: ToolDef = {
 	name: 'propose_new_document',
 	description:
@@ -379,29 +641,106 @@ const proposeEditDocument: ToolDef = {
 		if (!(await canAccess(ctx.user, wsId))) {
 			return { ok: false, error: 'Sem acesso a esse workspace' };
 		}
-		const doc = await getDoc(wsId, slug);
-		if (!doc) return { ok: false, error: 'Documento não encontrado' };
+		// Pick the basis for the diff. If the user is in the editor with
+		// this same doc open, the live buffer is the authoritative "before"
+		// state — diffing against the saved file would show stale changes
+		// as if they were part of the AI's proposal.
+		const useLiveBuffer =
+			!!ctx.currentEditor &&
+			ctx.currentEditor.slug === slug &&
+			ctx.currentEditor.wsId === wsId;
+
+		let title: string;
+		let oldContent: string;
+		if (useLiveBuffer && ctx.currentEditor) {
+			oldContent = ctx.currentEditor.content;
+			// Title isn't in the buffer directly; fall back to disk's title,
+			// or use the slug as a last resort. Cheap call — getDoc is cached.
+			const doc = await getDoc(wsId, slug);
+			title = doc?.title ?? slug;
+		} else {
+			const doc = await getDoc(wsId, slug);
+			if (!doc) {
+				const hint =
+					ctx.currentSlug && ctx.currentWs === wsId
+						? ` O usuário está atualmente visualizando o documento com slug "${ctx.currentSlug}" neste mesmo workspace — se o pedido era para editar "este documento", use esse slug.`
+						: '';
+				return {
+					ok: false,
+					error: `Documento "${slug}" não encontrado no workspace "${wsId}".${hint}`
+				};
+			}
+			title = doc.title;
+			oldContent = doc.source;
+		}
+
 		// No write happens here — the user reviews the diff on the client
-		// and, if they accept, the client POSTs to /api/save with the new
-		// content. That endpoint has its own canWrite gate.
+		// and, if they accept, the client either calls the editor bridge
+		// (when in /new) or POSTs to /api/save. Both paths have their own
+		// gates.
 		return {
 			ok: true,
 			data: {
 				proposed: true,
 				wsId,
 				slug,
-				title: doc.title,
-				note: 'Diff exibido ao usuário para aprovação. Nenhuma alteração foi salva.'
+				title,
+				targetedLiveBuffer: useLiveBuffer,
+				note: useLiveBuffer
+					? 'Diff proposto contra o buffer do editor. Se aceito, o buffer é atualizado e o usuário ainda precisa salvar.'
+					: 'Diff exibido ao usuário para aprovação. Nenhuma alteração foi salva.'
 			},
 			action: {
 				kind: 'propose_edit_document',
 				wsId,
 				slug,
-				title: doc.title,
-				oldContent: doc.source,
+				title,
+				oldContent,
 				newContent,
 				rationale
 			}
+		};
+	}
+};
+
+const switchWorkspace: ToolDef = {
+	name: 'switch_workspace',
+	description:
+		'Switch the user\'s active workspace. Necessary when the user wants to "go to" a different workspace or see its document list — the home page reads the active workspace from a cookie, not from the URL. After switching, the browser lands on `/` scoped to the new workspace. Use this before `list_documents` / `search_workspace` if the user is exploring a workspace they\'re not currently in. The special value `"personal"` resolves to the caller\'s own personal workspace (you don\'t need to know their username). On invalid input, the error message lists every workspace the user can access — use that list to retry.',
+	input_schema: {
+		type: 'object',
+		properties: {
+			wsId: {
+				type: 'string',
+				description:
+					'The workspace id to activate, or the literal string "personal" to switch to the caller\'s personal workspace. Must be one the user can access (see `get_context`).'
+			}
+		},
+		required: ['wsId']
+	},
+	async execute(ctx, input) {
+		const raw = asString(input.wsId);
+		if (!raw) return { ok: false, error: 'wsId é obrigatório' };
+		// Shorthand — "personal" resolves to the caller's own personal
+		// workspace so the model doesn't have to know the username.
+		const wsId = raw === 'personal' ? `${PERSONAL_PREFIX}${ctx.user.username}` : raw;
+		const ws = await getForUser(ctx.user, wsId);
+		if (!ws) {
+			// List accessible workspaces in the error so the model can
+			// self-correct on the next turn instead of guessing another id.
+			const accessible = await listForUser(ctx.user);
+			const options = accessible
+				.map((w) => `${w.id} (${w.name}, ${w.kind})`)
+				.join('; ');
+			return {
+				ok: false,
+				error: `Workspace "${raw}" não existe ou o usuário não tem acesso. Opções disponíveis: ${options}`
+			};
+		}
+		return {
+			ok: true,
+			data: { switched: true, wsId: ws.id, wsName: ws.name },
+			action: { kind: 'switch_workspace', wsId: ws.id, wsName: ws.name }
 		};
 	}
 };
@@ -435,6 +774,16 @@ const navigateTo: ToolDef = {
 	}
 };
 
+/**
+ * Web-research tool set — OpenAlex, Stack Exchange, Brave. Gated by env so
+ * workspaces / deployments that don't want the AI reaching outside can
+ * leave them off. `AI_WEB_RESEARCH=true` enables the whole feature;
+ * Brave additionally requires `BRAVE_API_KEY`. The per-workspace toggle
+ * is the planned follow-up — for now this is a platform-level switch.
+ */
+export const WEB_RESEARCH_ENABLED = process.env.AI_WEB_RESEARCH === 'true';
+export const BRAVE_ENABLED = WEB_RESEARCH_ENABLED && !!process.env.BRAVE_API_KEY;
+
 export const TOOLS: ToolDef[] = [
 	getContext,
 	searchWorkspace,
@@ -443,7 +792,10 @@ export const TOOLS: ToolDef[] = [
 	fetchUrl,
 	proposeNewDocument,
 	proposeEditDocument,
-	navigateTo
+	switchWorkspace,
+	navigateTo,
+	...(WEB_RESEARCH_ENABLED ? [searchAcademic, searchStackoverflow] : []),
+	...(BRAVE_ENABLED ? [searchWeb] : [])
 ];
 
 export const TOOL_MAP: Record<string, ToolDef> = Object.fromEntries(

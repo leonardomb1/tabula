@@ -1,8 +1,20 @@
-import { getAllDocs } from '$lib/server/docsIndex';
-import { listForUser, getForUser, DEFAULT_WS_ID, PERSONAL_PREFIX, type Workspace } from '$lib/server/workspaces';
+import {
+	listForUser,
+	getForUser,
+	DEFAULT_WS_ID,
+	PERSONAL_PREFIX,
+	type Workspace
+} from '$lib/server/workspaces';
+import {
+	listDocsChunk,
+	listTagCounts,
+	parseTagsParam,
+	DEFAULT_LIMIT,
+	type SortMode
+} from '$lib/server/docsQuery';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals, cookies }) => {
+export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// Build the visible workspace list. Unauthenticated visitors see only the
 	// default team (mostly a defensive code path — / is auth-gated).
 	const user = locals.user;
@@ -20,17 +32,35 @@ export const load: PageServerLoad = async ({ locals, cookies }) => {
 	}
 	if (!current) current = workspaces[0];
 
-	const cached = await getAllDocs(current.id);
-	const docs = cached
-		.map((d) => {
-			const tags = Array.isArray(d.frontmatter.tags) ? d.frontmatter.tags.map(String) : [];
-			const date = d.frontmatter.date ? new Date(d.frontmatter.date as unknown as Date) : null;
-			const description = typeof d.frontmatter.description === 'string' ? d.frontmatter.description : null;
-			return { slug: d.slug, title: d.title, mtime: d.mtime, date, tags, description };
-		})
-		.sort((a, b) => (b.date ?? b.mtime).getTime() - (a.date ?? a.mtime).getTime());
+	// First chunk + tag counts land in the same page load so the first
+	// paint has real data and the sidebar doesn't flicker. Later chunks
+	// come from /api/docs/list via infinite scroll on the client.
+	// Tag filter on the URL (?tag=foo) remains supported — the header
+	// still deep-links workspace tag links this way.
+	const sortRaw = url.searchParams.get('sort');
+	const sort: SortMode = sortRaw === 'alpha' ? 'alpha' : 'recent';
+	// Legacy single `?tag=` links coexist with the new multi `?tags=a,b`
+	// shape. Merge both so a click from the reader's tag chip still lands
+	// with that tag pre-selected.
+	const tags = [
+		...parseTagsParam(url.searchParams.get('tags')),
+		...(url.searchParams.get('tag') ? [url.searchParams.get('tag') as string] : [])
+	];
 
-	const allTags = [...new Set(docs.flatMap((d) => d.tags))].sort();
+	const [chunk, tagCounts] = await Promise.all([
+		listDocsChunk(current.id, { tags, sort, offset: 0, limit: DEFAULT_LIMIT }),
+		listTagCounts(current.id)
+	]);
 
-	return { docs, allTags, workspaces, currentWs: current };
+	return {
+		docs: chunk.docs,
+		total: chunk.total,
+		hasMore: chunk.hasMore,
+		initialLimit: chunk.limit,
+		initialTags: tags,
+		initialSort: sort,
+		tagCounts,
+		workspaces,
+		currentWs: current
+	};
 };

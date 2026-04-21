@@ -2,10 +2,18 @@
 	import type { PageData } from './$types';
 	import TopBar from '$lib/TopBar.svelte';
 	import { toggleAi, aiDock } from '$lib/aiDock.svelte';
-	import { page } from '$app/stores';
 	import { ROLES, isAtLeast } from '$lib/roles';
 	import { docPath } from '$lib/ids';
 	import MobileSheet from '$lib/MobileSheet.svelte';
+
+	type Doc = {
+		slug: string;
+		title: string;
+		mtime: string | Date;
+		date: string | Date | null;
+		tags: string[];
+		description: string | null;
+	};
 
 	let { data }: { data: PageData } = $props();
 
@@ -13,22 +21,115 @@
 	// write affordances (+ Novo, empty-state CTA).
 	const canWrite = $derived(isAtLeast(data.currentRole, ROLES.EDITOR));
 
-	const initTag = $page.url.searchParams.get('tag');
-	let selectedTags = $state<Set<string>>(initTag ? new Set([initTag]) : new Set());
-	let sortMode = $state<'recent' | 'alpha'>('recent');
+	// Filter + sort state — seeded once from the server's first-chunk
+	// params (so `?tag=…` links deep-link correctly), then resynced by
+	// the workspace-change effect below when `data` flips to another
+	// workspace. svelte-ignore makes the intent explicit: the reads are
+	// initial-only and the sync effect handles the reactive case.
 
-	const filtered = $derived(
-		selectedTags.size > 0
-			? data.docs.filter((d) => [...selectedTags].every((t) => d.tags.includes(t)))
-			: data.docs
-	);
+	// svelte-ignore state_referenced_locally
+	let selectedTags = $state<Set<string>>(new Set(data.initialTags));
+	// svelte-ignore state_referenced_locally
+	let sortMode = $state<'recent' | 'alpha'>(data.initialSort);
 
-	const sorted = $derived.by(() => {
-		if (sortMode === 'alpha') {
-			return [...filtered].sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
+	// Infinite-scroll state. `docs` is the running list; `total` / `hasMore`
+	// tell the sentinel whether another chunk is worth fetching. When the
+	// user changes filter or sort, everything resets and the next request
+	// starts from offset 0.
+
+	// svelte-ignore state_referenced_locally
+	let docs = $state<Doc[]>(data.docs);
+	// svelte-ignore state_referenced_locally
+	let total = $state<number>(data.total);
+	// svelte-ignore state_referenced_locally
+	let hasMore = $state<boolean>(data.hasMore);
+	let loading = $state<boolean>(false);
+	let fetchToken = 0; // increments on each reset; stale responses no-op
+
+	// svelte-ignore state_referenced_locally
+	const PAGE_SIZE = data.initialLimit;
+
+	async function fetchChunk(offset: number): Promise<void> {
+		const token = fetchToken;
+		loading = true;
+		try {
+			const params = new URLSearchParams({
+				ws: data.currentWs.id,
+				sort: sortMode,
+				offset: String(offset),
+				limit: String(PAGE_SIZE)
+			});
+			if (selectedTags.size > 0) params.set('tags', [...selectedTags].join(','));
+			const res = await fetch(`/api/docs/list?${params.toString()}`);
+			if (!res.ok) return;
+			const chunk = await res.json();
+			// Drop the response if another fetch has superseded this one
+			// (filter/sort changed while this was in flight).
+			if (token !== fetchToken) return;
+			if (offset === 0) docs = chunk.docs;
+			else docs = [...docs, ...chunk.docs];
+			total = chunk.total;
+			hasMore = chunk.hasMore;
+		} finally {
+			if (token === fetchToken) loading = false;
 		}
-		// 'recent' — server already returned docs sorted by date desc.
-		return filtered;
+	}
+
+	function resetList() {
+		fetchToken++;
+		docs = [];
+		hasMore = true;
+		fetchChunk(0);
+	}
+
+	// Re-run the first-chunk fetch whenever the user flips a tag or sort.
+	// Track the inputs in a $derived so `$effect` fires on either.
+	const filterKey = $derived([...selectedTags].sort().join(',') + '|' + sortMode);
+	// svelte-ignore state_referenced_locally
+	let previousFilterKey = `${[...data.initialTags].sort().join(',')}|${data.initialSort}`;
+	$effect(() => {
+		if (filterKey === previousFilterKey) return;
+		previousFilterKey = filterKey;
+		resetList();
+	});
+
+	// Workspace switch (or any other navigation that swaps `data`) lands
+	// here. Re-seed local state from the new first-chunk so we don't keep
+	// rendering the previous workspace's docs + tags. Updating
+	// `previousFilterKey` *before* the state writes keeps the filter
+	// effect above idle — we'd otherwise hit the API for a chunk we
+	// already have in `data.docs`.
+	// svelte-ignore state_referenced_locally
+	let lastSyncedWs = data.currentWs.id;
+	$effect(() => {
+		if (data.currentWs.id === lastSyncedWs) return;
+		lastSyncedWs = data.currentWs.id;
+		previousFilterKey =
+			[...data.initialTags].sort().join(',') + '|' + data.initialSort;
+		selectedTags = new Set(data.initialTags);
+		sortMode = data.initialSort;
+		docs = data.docs;
+		total = data.total;
+		hasMore = data.hasMore;
+	});
+
+	// Sentinel-based infinite scroll. The empty div at the bottom of the
+	// list is observed; when it enters the viewport we fetch the next
+	// chunk. Disconnects cleanly on unmount.
+	let sentinel = $state<HTMLDivElement | null>(null);
+	$effect(() => {
+		if (!sentinel) return;
+		if (typeof IntersectionObserver === 'undefined') return;
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (!entries[0].isIntersecting) return;
+				if (loading || !hasMore) return;
+				fetchChunk(docs.length);
+			},
+			{ rootMargin: '300px' } // fire a little before the sentinel is visible so the load feels seamless
+		);
+		io.observe(sentinel);
+		return () => io.disconnect();
 	});
 
 	function toggleTag(tag: string) {
@@ -37,10 +138,9 @@
 		selectedTags = next;
 	}
 
-	function formatDate(d: Date) {
+	function formatDate(d: string | Date) {
 		return new Date(d).toLocaleDateString('pt-BR', { year: 'numeric', month: 'short', day: 'numeric' });
 	}
-
 </script>
 
 <svelte:head>
@@ -93,7 +193,7 @@
 	</MobileSheet>
 
 	<main class="index-main">
-		{#if data.docs.length === 0}
+		{#if total === 0 && selectedTags.size === 0}
 			<div class="empty-state">
 				<h1 class="empty-title">{data.currentWs.name}</h1>
 				<p class="empty-text">Nenhum documento ainda.</p>
@@ -108,8 +208,8 @@
 				<p class="eyebrow">Workspace</p>
 				<h1 class="index-title">{data.currentWs.name}</h1>
 				<p class="index-count">
-					<strong>{data.docs.length}</strong>
-					{data.docs.length === 1 ? 'documento' : 'documentos'}
+					<strong>{total}</strong>
+					{total === 1 ? 'documento' : 'documentos'}
 					{#if selectedTags.size > 0}
 						— filtrando por
 						<em>{[...selectedTags].join(', ')}</em>
@@ -117,12 +217,12 @@
 				</p>
 			</section>
 
-			<div class="index-layout" class:has-tags={data.allTags.length > 0}>
-				{#if data.allTags.length > 0}
+			<div class="index-layout" class:has-tags={data.tagCounts.length > 0}>
+				{#if data.tagCounts.length > 0}
 					<aside class="tag-rail">
 						<p class="rail-head">Tags</p>
 						<ul class="tag-list">
-							{#each data.allTags as tag}
+							{#each data.tagCounts as { tag, count }}
 								<li>
 									<button
 										class="tag-btn"
@@ -130,9 +230,7 @@
 										onclick={() => toggleTag(tag)}
 									>
 										<span class="tag-name">{tag}</span>
-										<span class="tag-count">
-											{data.docs.filter((d) => d.tags.includes(tag)).length}
-										</span>
+										<span class="tag-count">{count}</span>
 									</button>
 								</li>
 							{/each}
@@ -167,7 +265,7 @@
 						</div>
 					</div>
 
-					{#if sorted.length === 0}
+					{#if total === 0}
 						<p class="no-results">
 							Nenhum documento com
 							{selectedTags.size === 1 ? 'a tag' : 'as tags'}
@@ -175,7 +273,7 @@
 						</p>
 					{:else}
 						<ul class="doc-list">
-							{#each sorted as doc}
+							{#each docs as doc (doc.slug)}
 								<li class="doc-item">
 									<a href={docPath(data.currentWs.id, doc.slug, doc.title)} class="doc-link">
 										<h3 class="doc-title">{doc.title}</h3>
@@ -202,6 +300,19 @@
 								</li>
 							{/each}
 						</ul>
+
+						{#if hasMore}
+							<!-- Sentinel row watched by the IntersectionObserver
+							     above. Empty height is fine; a small margin
+							     lets the spinner sit on it when loading. -->
+							<div class="list-sentinel" bind:this={sentinel} aria-hidden="true">
+								{#if loading}
+									<span class="list-spinner" aria-label="Carregando mais documentos"></span>
+								{/if}
+							</div>
+						{:else if docs.length > 0 && docs.length >= PAGE_SIZE}
+							<p class="list-end">Fim da lista.</p>
+						{/if}
 					{/if}
 				</div>
 			</div>
@@ -608,6 +719,36 @@
 		font-style: italic;
 		color: var(--ink-soft);
 		padding: 40px 0;
+	}
+
+	/* Infinite-scroll sentinel — centers the loading spinner while idle
+	   space keeps the IntersectionObserver a few hundred px below the
+	   last row so fetches fire before the user hits the true end. */
+	.list-sentinel {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		min-height: 48px;
+		padding: 24px 0 48px;
+	}
+	.list-spinner {
+		display: inline-block;
+		width: 18px;
+		height: 18px;
+		border: 2px solid var(--rule);
+		border-top-color: var(--ink-soft);
+		border-radius: 50%;
+		animation: list-spin 0.6s linear infinite;
+	}
+	@keyframes list-spin { to { transform: rotate(360deg); } }
+
+	.list-end {
+		text-align: center;
+		font-family: var(--font-serif-body);
+		font-style: italic;
+		color: var(--ink-muted);
+		font-size: 13px;
+		padding: 24px 0 48px;
 	}
 
 	/* ══════════════════════════════════════

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { marked } from 'marked';
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { aiDock, closeAi, toggleAi } from './aiDock.svelte';
+	import { editorBridge } from './aiEditorBridge.svelte';
 	import { collapseToHunks, diffStats, lineDiff, type Hunk } from './diff';
 
 	// Context — the current doc slug if any. Threaded through so the server
@@ -67,6 +68,14 @@
 		| { role: 'agent'; steps: AgentStep[] };
 	let messages = $state<Message[]>([]);
 	let streamingContent = $state('');
+
+	// Chat history persists across navigations + reloads via localStorage.
+	// Loaded once on mount (below), written after every turn finishes
+	// (see the $effect near the bottom of the script). Capped at 50
+	// messages to stay well under the 5 MB per-origin storage limit even
+	// with agent turns that embed document previews.
+	const STORAGE_KEY = 'tabula-ai-history';
+	const MAX_STORED_MESSAGES = 50;
 	// Abort handle for the current agent turn. Stop button calls .abort()
 	// which tears down the fetch, which triggers the server to detect
 	// `request.signal.aborted` and break out of the Anthropic tool loop.
@@ -105,7 +114,24 @@
 		streamingContent = '';
 		lastQ = q;
 
-		const historyToSend = messages.slice(-MAX_HISTORY - 1, -1);
+		// Flatten agent turns into plain assistant messages — Anthropic's
+		// API only accepts "user" / "assistant", and the chat endpoint
+		// forwards this history verbatim. Without this, any agent-mode
+		// turn persisted from an earlier session gets rejected with
+		// "Unexpected role 'agent'".
+		type ChatHistoryMsg = { role: 'user' | 'assistant'; content: string };
+		const historyToSend: ChatHistoryMsg[] = messages
+			.slice(-MAX_HISTORY - 1, -1)
+			.flatMap<ChatHistoryMsg>((m) => {
+				if (m.role === 'user') return [{ role: 'user', content: m.content }];
+				if (m.role === 'assistant')
+					return [{ role: 'assistant', content: m.content }];
+				const text = m.steps
+					.filter((s): s is Extract<AgentStep, { kind: 'text' }> => s.kind === 'text')
+					.map((s) => s.text)
+					.join('\n');
+				return text ? [{ role: 'assistant', content: text }] : [];
+			});
 
 		try {
 			const res = await fetch('/api/ai', {
@@ -205,7 +231,18 @@
 					message: q,
 					currentSlug,
 					currentWs,
-					history: historyToSend
+					history: historyToSend,
+					// When the editor is mounted and carrying an unsaved
+					// buffer, ship its current contents so tools like
+					// `read_document` / `propose_edit_document` can prefer
+					// the live draft over the stale file on disk.
+					currentEditor: editorBridge.applyEdit
+						? {
+								slug: editorBridge.slug,
+								wsId: editorBridge.wsId,
+								content: editorBridge.content
+						  }
+						: null
 				})
 			});
 			if (!res.ok) {
@@ -251,9 +288,30 @@
 						continue;
 					}
 					switch (ev.type) {
-						case 'text':
-							updateSteps((steps) => [...steps, { kind: 'text', text: ev.delta ?? '' }]);
+						case 'text': {
+							// Coalesce consecutive text deltas into the
+							// current text step. Each delta is a partial
+							// token stream — feeding them to `marked.parse`
+							// individually mangles markdown that spans
+							// chunks (`**bold**` split mid-word, single
+							// paragraphs fragmented into many `<p>`). A
+							// tool step in between breaks the run so pre-
+							// and post-tool commentary render as separate
+							// blocks.
+							const delta = ev.delta ?? '';
+							if (!delta) break;
+							updateSteps((steps) => {
+								const last = steps[steps.length - 1];
+								if (last?.kind === 'text') {
+									return [
+										...steps.slice(0, -1),
+										{ kind: 'text', text: last.text + delta }
+									];
+								}
+								return [...steps, { kind: 'text', text: delta }];
+							});
 							break;
+						}
 						case 'tool_use':
 							updateSteps((steps) => [
 								...steps,
@@ -343,6 +401,7 @@
 		kind: string;
 		path?: string;
 		wsId?: string;
+		wsName?: string;
 		slug?: string;
 		title?: string;
 		content?: string;
@@ -360,6 +419,16 @@
 			// Navigate immediately — reversible, read-only, no approval needed
 			// per product decision.
 			goto(action.path);
+			return;
+		}
+		if (action.kind === 'switch_workspace' && action.wsId) {
+			// Mirror WorkspaceModal.pick(): set the cookie + localStorage so
+			// SSR and other tabs stay aligned, then navigate to `/` with
+			// `invalidateAll` so the layout reloads against the new active
+			// workspace.
+			if (typeof localStorage !== 'undefined') localStorage.setItem('docs_ws', action.wsId);
+			document.cookie = `docs_ws=${encodeURIComponent(action.wsId)}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+			goto('/', { invalidateAll: true });
 			return;
 		}
 		if (action.kind === 'propose_new_document') {
@@ -417,6 +486,41 @@
 		const draft = step.action;
 		draft.state = 'saving';
 		messages = [...messages];
+
+		// Editor-bridge shortcut: when the user is in /new editing the
+		// same doc the AI is proposing an edit for, route the approved
+		// content through the editor. Preferred path is the inline
+		// unified-merge review (startDiffReview) so the user can accept
+		// or reject each hunk individually; applyEdit is the whole-
+		// buffer fallback for older editor builds.
+		if (
+			draft.kind === 'propose_edit_document' &&
+			editorBridge.slug === draft.slug &&
+			editorBridge.wsId === draft.wsId &&
+			(editorBridge.startDiffReview || editorBridge.applyEdit)
+		) {
+			try {
+				if (editorBridge.startDiffReview) {
+					// Resolves when the user clicks "Concluir revisão" in
+					// the editor. While it's open, the accept card shows
+					// "Revisando…" so it's clear where the interaction has
+					// moved.
+					draft.state = 'saving';
+					messages = [...messages];
+					await editorBridge.startDiffReview(draft.newContent);
+				} else if (editorBridge.applyEdit) {
+					await editorBridge.applyEdit(draft.newContent);
+				}
+				draft.state = 'accepted';
+			} catch (e) {
+				draft.state = 'error';
+				draft.error = e instanceof Error ? e.message : 'Falha ao aplicar no editor';
+			} finally {
+				messages = [...messages];
+			}
+			return;
+		}
+
 		// Shared save path — /api/save handles both create (no slug) and
 		// overwrite (slug present); the canWrite gate runs on the server.
 		const body =
@@ -437,6 +541,13 @@
 				const data = await res.json();
 				draft.state = 'accepted';
 				if (draft.kind === 'propose_new_document') draft.createdSlug = data.slug;
+				// An accepted edit on the saved file changes whatever page
+				// the user is currently viewing. Re-run load functions so
+				// the reader, home page, etc. reflect the new state
+				// without a manual refresh.
+				if (draft.kind === 'propose_edit_document') {
+					await invalidateAll();
+				}
 			}
 		} catch (e) {
 			draft.state = 'error';
@@ -503,8 +614,12 @@
 			case 'list_documents': return 'Listar documentos';
 			case 'read_document': return 'Ler documento';
 			case 'fetch_url': return 'Buscar URL';
+			case 'search_academic': return 'Pesquisa acadêmica';
+			case 'search_stackoverflow': return 'Stack Overflow';
+			case 'search_web': return 'Busca web';
 			case 'propose_new_document': return 'Rascunhar novo documento';
 			case 'propose_edit_document': return 'Propor edição';
+			case 'switch_workspace': return 'Trocar workspace';
 			case 'navigate_to': return 'Navegar';
 			default: return name;
 		}
@@ -519,8 +634,17 @@
 		if (name === 'fetch_url' && typeof i.url === 'string') {
 			try { return new URL(i.url).hostname; } catch { return i.url.slice(0, 40); }
 		}
+		if (
+			(name === 'search_academic' ||
+				name === 'search_stackoverflow' ||
+				name === 'search_web') &&
+			typeof i.query === 'string'
+		) {
+			return `"${i.query}"`;
+		}
 		if (name === 'propose_new_document' && typeof i.title === 'string') return i.title;
 		if (name === 'propose_edit_document' && typeof i.slug === 'string') return i.slug;
+		if (name === 'switch_workspace' && typeof i.wsId === 'string') return i.wsId;
 		if (name === 'navigate_to' && typeof i.path === 'string') return i.path;
 		return '';
 	}
@@ -589,7 +713,36 @@
 
 	onMount(() => {
 		window.addEventListener('keydown', onGlobalKey);
+		// Rehydrate prior conversation once the component mounts. A stored
+		// history that fails to parse (schema drift, corrupted entry) is
+		// dropped silently — the dock starts empty instead of crashing.
+		try {
+			const raw = localStorage.getItem(STORAGE_KEY);
+			if (raw) {
+				const parsed = JSON.parse(raw);
+				if (Array.isArray(parsed)) {
+					messages = parsed.slice(-MAX_STORED_MESSAGES);
+				}
+			}
+		} catch {
+			/* storage disabled or corrupted — start fresh */
+		}
 		return () => window.removeEventListener('keydown', onGlobalKey);
+	});
+
+	// Persist after every settled turn (not during streaming — we'd
+	// re-save on every delta and the partial-content writes would
+	// dominate). An accepted/dismissed draft action also re-triggers
+	// this via its mutation on `messages`.
+	$effect(() => {
+		if (streaming) return;
+		if (typeof localStorage === 'undefined') return;
+		try {
+			const slice = messages.slice(-MAX_STORED_MESSAGES);
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(slice));
+		} catch {
+			/* quota exceeded or disabled — ignore */
+		}
 	});
 </script>
 
@@ -821,7 +974,10 @@
 						<div class="answer-md">{@html renderMd(streamingContent)}<span class="cursor">▋</span></div>
 					</div>
 				</div>
-			{:else if streaming}
+			{:else if streaming && !agentMode}
+				<!-- Chat-mode only: agent mode has its own in-progress bubble
+				     (the agent message grows with steps as they arrive), so
+				     a second "Assistente" typing placeholder duplicates it. -->
 				<div class="msg assistant">
 					<span class="meta">Assistente</span>
 					<div class="bubble">
@@ -1049,7 +1205,8 @@
 		border-bottom-right-radius: 3px;
 	}
 
-	.msg.assistant .bubble {
+	.msg.assistant .bubble,
+	.msg.agent .bubble {
 		background: var(--surface);
 		border: 1px solid var(--rule);
 		border-bottom-left-radius: 3px;

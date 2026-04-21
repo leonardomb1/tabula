@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { onMount, tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import BrandLogo from '$lib/BrandLogo.svelte';
 	import UserMenu from '$lib/UserMenu.svelte';
 	import { aiDock, toggleAi } from '$lib/aiDock.svelte';
+	import {
+		editorBridge,
+		registerEditor,
+		setReviewActive,
+		unregisterEditor,
+		updateEditorContent
+	} from '$lib/aiEditorBridge.svelte';
 	import type { PageData } from './$types';
 	import type { RenderResult } from '$lib/markdown';
 	import { docPath } from '$lib/ids';
@@ -92,6 +99,19 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 	// ratios drift and keeping them locked feels wrong.
 	let scrollSync = $state(true);
 	let editorView: any = null;
+
+	// Bound inside the editor's onMount closure — declared here so the
+	// review-toolbar template can call them. `null` while the editor
+	// hasn't initialized yet; the toolbar is gated on `editorBridge
+	// .reviewActive` so these only fire after they're assigned.
+	let finishReview: (() => void) | null = null;
+	let acceptAllChunks: (() => void) | null = null;
+	let rejectAllChunks: (() => void) | null = null;
+
+	// Unregister the AI-dock bridge when the user navigates away — the
+	// bridge is a module-level singleton and would otherwise leak stale
+	// slug / content into whichever page mounts next.
+	onDestroy(() => unregisterEditor());
 
 	// AI edit
 	let aiEditOpen = $state(false);
@@ -364,7 +384,8 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 			mdLang,
 			langData,
 			language,
-			highlight
+			highlight,
+			merge
 		] = await Promise.all([
 			import('@codemirror/view'),
 			import('@codemirror/state'),
@@ -372,16 +393,23 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 			import('@codemirror/lang-markdown'),
 			import('@codemirror/language-data'),
 			import('@codemirror/language'),
-			import('@lezer/highlight')
+			import('@lezer/highlight'),
+			import('@codemirror/merge')
 		]);
 
 		const { EditorView, keymap, drawSelection, dropCursor } = view;
-		const { EditorState } = stateLib;
+		const { EditorState, Compartment } = stateLib;
 		const { defaultKeymap, historyKeymap, indentWithTab, history: cmHistory } = commands;
 		const { markdown, markdownLanguage } = mdLang;
 		const { languages } = langData;
 		const { HighlightStyle, syntaxHighlighting } = language;
 		const { tags: t } = highlight;
+		const { unifiedMergeView, acceptChunk, rejectChunk, getChunks } = merge;
+
+		// Compartment holds the unified-merge extension so we can swap it in
+		// (during an AI-review session) and out (when the user is done)
+		// without tearing down the whole editor.
+		const mergeCompartment = new Compartment();
 
 		// Frontmatter block parser — consumes a top-of-doc `---\n…\n---` so
 		// the closing `---` isn't styled as a setext H2 underline by the
@@ -477,9 +505,14 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 				markdown({ base: markdownLanguage, codeLanguages: languages, extensions: [frontmatterExt] }),
 				syntaxHighlighting(markdownHighlight),
 				editorTheme,
+				// Slot for the inline merge view — empty until an AI review
+				// session starts. Kept in a Compartment so we can swap it
+				// in/out without rebuilding the whole editor state.
+				mergeCompartment.of([]),
 				EditorView.updateListener.of((update: any) => {
 					if (update.docChanged) {
 						content = update.state.doc.toString();
+						updateEditorContent(content);
 						onContentInput();
 					}
 				}),
@@ -503,6 +536,85 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 
 		editorView = new EditorView({ state, parent: editorContainer });
 		fetchPreview();
+
+		// Register with the AI-dock bridge so the agent can read the live
+		// buffer (instead of the stale saved file) and apply approved edits
+		// directly to the CodeMirror doc. The user still has to hit Save
+		// (Ctrl+S) to persist — we never write through the agent.
+		// Holds the deferred that `startDiffReview` returns to the dock —
+		// resolved when the user clicks "Concluir revisão" (or all hunks
+		// happen to be resolved, whichever comes first).
+		let reviewDone: (() => void) | null = null;
+
+		registerEditor({
+			slug: editingExisting ? originalSlug : null,
+			wsId,
+			content,
+			applyEdit: (newContent: string) => {
+				if (!editorView) return;
+				editorView.dispatch({
+					changes: {
+						from: 0,
+						to: editorView.state.doc.length,
+						insert: newContent
+					}
+				});
+			},
+			startDiffReview: (newContent: string) => {
+				if (!editorView) return Promise.resolve();
+				// Treat the current buffer as "original" and swap the doc
+				// to the proposed new content. unifiedMergeView then shows
+				// inline red/green hunks with per-chunk Accept/Reject
+				// buttons, keyed against the original we just captured.
+				const original = editorView.state.doc.toString();
+				editorView.dispatch({
+					changes: {
+						from: 0,
+						to: editorView.state.doc.length,
+						insert: newContent
+					},
+					effects: mergeCompartment.reconfigure(
+						unifiedMergeView({ original, mergeControls: true })
+					)
+				});
+				setReviewActive(true);
+				return new Promise<void>((resolve) => {
+					reviewDone = () => {
+						reviewDone = null;
+						resolve();
+					};
+				});
+			}
+		});
+
+		// Exposed on the component scope so the review toolbar below can
+		// close the review session. Defined here (inside onMount) so the
+		// closure captures `editorView`, `mergeCompartment`, and
+		// `reviewDone` from the same scope.
+		finishReview = () => {
+			if (!editorView) return;
+			editorView.dispatch({
+				effects: mergeCompartment.reconfigure([])
+			});
+			setReviewActive(false);
+			reviewDone?.();
+		};
+		acceptAllChunks = () => {
+			if (!editorView) return;
+			// Accept chunks from the bottom up so each acceptChunk call
+			// doesn't shift positions under the next one's feet.
+			const chunks = getChunks(editorView.state)?.chunks ?? [];
+			for (let i = chunks.length - 1; i >= 0; i--) {
+				acceptChunk(editorView, chunks[i].fromB);
+			}
+		};
+		rejectAllChunks = () => {
+			if (!editorView) return;
+			const chunks = getChunks(editorView.state)?.chunks ?? [];
+			for (let i = chunks.length - 1; i >= 0; i--) {
+				rejectChunk(editorView, chunks[i].fromB);
+			}
+		};
 
 		// Two-way scroll sync between source pane and preview. We match scroll
 		// ratios (top / (scrollHeight - clientHeight)) rather than absolute
@@ -684,6 +796,25 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 					{#if aiEditError}
 						<span class="ai-edit-error">{aiEditError}</span>
 					{/if}
+				</div>
+			{/if}
+
+			{#if editorBridge.reviewActive}
+				<!-- Active AI-edit review: the editor is showing inline
+				     unified-diff hunks with per-chunk Accept/Reject buttons.
+				     This toolbar adds bulk actions and the Concluir button
+				     that tears the merge extension back down. -->
+				<div class="review-bar">
+					<span class="review-label">✦ Revisando edição proposta</span>
+					<button class="review-btn" onclick={() => rejectAllChunks?.()} title="Descartar todas as alterações">
+						Rejeitar todas
+					</button>
+					<button class="review-btn" onclick={() => acceptAllChunks?.()} title="Aceitar todas as alterações">
+						Aceitar todas
+					</button>
+					<button class="review-btn primary" onclick={() => finishReview?.()} title="Sair do modo de revisão">
+						Concluir
+					</button>
 				</div>
 			{/if}
 
@@ -1212,6 +1343,63 @@ const greet = (name: string) => \`Olá, \${name}!\`;
 		border-top: 1px solid var(--rule);
 		margin: 24px 0;
 	}
+
+	/* ══════════════════════════════════════
+	   AI edit-review toolbar
+	   Sits above the CodeMirror container while unified-merge is active;
+	   reuses `.ai-edit-bar`'s visual language (accent-soft background) so
+	   the two AI-driven modes feel like the same family.
+	═══════════════════════════════════════ */
+	.review-bar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 8px 14px;
+		background: var(--accent-soft);
+		border-bottom: 1px solid var(--rule);
+		color: var(--ink);
+		font-family: var(--font-sans);
+		font-size: 13px;
+	}
+	.review-label {
+		flex: 1;
+		color: var(--accent-ink);
+		font-weight: 500;
+	}
+	.review-btn {
+		display: inline-flex;
+		align-items: center;
+		height: 26px;
+		padding: 0 10px;
+		background: var(--surface);
+		color: var(--ink-soft);
+		border: 1px solid var(--rule);
+		border-radius: 4px;
+		font-family: var(--font-sans);
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.review-btn:hover { color: var(--ink); background: var(--bg); }
+	.review-btn.primary {
+		background: var(--ink);
+		color: var(--bg);
+		border-color: var(--ink);
+	}
+	.review-btn.primary:hover { background: oklch(0.3 0.015 80); }
+
+	/* Unified-merge visual treatment for the inline diff. @codemirror/merge
+	   ships its own class names; these align them with our palette so
+	   accepted / rejected states read cleanly against the editor's ink
+	   color. */
+	:global(.cm-deletedLine) {
+		background: color-mix(in oklab, oklch(0.65 0.18 25) 14%, transparent);
+	}
+	:global(.cm-insertedLine),
+	:global(.cm-changedLine) {
+		background: color-mix(in oklab, oklch(0.65 0.14 150) 14%, transparent);
+	}
+	:global(.cm-merge-revert) { color: oklch(0.55 0.18 25); }
+	:global(.cm-merge-accept) { color: oklch(0.5 0.14 150); }
 
 	/* ══════════════════════════════════════
 	   AI edit bar
