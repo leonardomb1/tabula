@@ -1417,9 +1417,19 @@
 
 	:global(body.ai-open) { padding-right: 380px; }
 
+	/* Overlay mode below ~1404px — mobile breakpoint (1024) plus the
+	   dock's own 380px. In this band the push-behavior would shrink the
+	   top bar's effective width into mobile territory, squashing the
+	   brand/search/actions row. Switching to overlay keeps content
+	   full-width; the dock floats on top of the right side of the page
+	   and users close it to see what's underneath (same pattern the
+	   1024px block already uses for phones). */
+	@media (max-width: 1404px) {
+		:global(body.ai-open) { padding-right: 0; }
+	}
+
 	@media (max-width: 1024px) {
 		#ai-dock { width: 100vw; }
-		:global(body.ai-open) { padding-right: 0; }
 	}
 
 	/* ══════════════════════════════════════
