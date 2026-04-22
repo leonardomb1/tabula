@@ -1,6 +1,6 @@
 # Docs
 
-A lightweight Markdown documentation platform. SvelteKit + Bun. Built-in LDAP or env-based auth, R2/S3-compatible storage, AI chat with citations, live wiki links, version history, PDF export.
+A lightweight Markdown documentation platform. SvelteKit + Bun. Built-in LDAP and OIDC auth, R2/S3-compatible storage, AI chat with citations, live wiki links, version history, PDF export.
 
 ## Quick start
 
