@@ -35,7 +35,16 @@
 <article class="doc">
 	<header>
 		<div class="top">
-			<h1>{data.doc.title || m.doc_untitled()}</h1>
+			<h1>
+				{data.doc.title || m.doc_untitled()}
+				{#if data.doc.isPublic && data.doc.publicSlug}
+					<a class="state public" href={`/wiki/${encodeURIComponent(data.doc.publicSlug)}`}>
+						{m.doc_public_badge()}
+					</a>
+				{:else if data.pendingPublish}
+					<span class="state pending">{m.doc_pending_badge()}</span>
+				{/if}
+			</h1>
 			<div class="doc-actions">
 				<a href={historyHref(wsId, data.doc.slug)}>{m.doc_history()}</a>
 				{#if data.canWrite}
@@ -79,12 +88,26 @@
 		{/if}
 	</header>
 
+	{#if data.pendingPublish?.canApprove}
+		<div class="review-banner">
+			<span>{m.review_requested_by()} <strong>{data.pendingPublish.requestedBy}</strong></span>
+			<form method="POST" action="?/approve">
+				<input type="hidden" name="review" value={data.pendingPublish.id} />
+				<button type="submit" class="approve">{m.review_approve()}</button>
+			</form>
+			<form method="POST" action="?/reject">
+				<input type="hidden" name="review" value={data.pendingPublish.id} />
+				<button type="submit" class="reject">{m.review_reject()}</button>
+			</form>
+		</div>
+	{/if}
+
 	{#if data.renderError}
 		<p class="render-error">{data.renderError}</p>
 	{:else if !data.html.trim()}
 		<p class="empty">{m.reader_empty()}</p>
 	{:else if data.doc.mode === 'typst'}
-		<div class="typst">{@html data.html}</div>
+		<div class="typst-body">{@html data.html}</div>
 	{:else}
 		<div class="prose">{@html data.html}</div>
 	{/if}
@@ -216,12 +239,60 @@
 		white-space: pre-wrap;
 	}
 
-	.typst {
-		overflow-x: auto;
+	.state {
+		display: inline-block;
+		vertical-align: middle;
+		margin-inline-start: 8px;
+		padding: 2px 9px;
+		border-radius: 999px;
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		text-decoration: none;
 	}
-	.typst :global(svg) {
-		max-width: 100%;
-		height: auto;
+	.state.public {
+		color: var(--brand);
+		border: 1px solid var(--brand);
+	}
+	.state.pending {
+		color: var(--text-muted);
+		border: 1px solid var(--border-strong);
+	}
+
+	.review-banner {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin: 0 0 22px;
+		padding: 9px 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius);
+		background: var(--surface);
+		font-size: 13px;
+		color: var(--text-muted);
+	}
+	.review-banner span {
+		flex: 1;
+	}
+	.review-banner button {
+		height: 26px;
+		padding: 0 12px;
+		border-radius: var(--radius-sm);
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.review-banner .approve {
+		border: 0;
+		background: var(--brand);
+		color: #fff;
+	}
+	.review-banner .reject {
+		border: 1px solid var(--danger);
+		background: var(--danger-wash);
+		color: var(--danger);
 	}
 
 	.backlinks {
@@ -250,108 +321,6 @@
 	}
 	.backlinks li a:hover {
 		color: var(--text);
-	}
-
-	.prose {
-		font-family: var(--font-read);
-		font-size: 17px;
-		line-height: 1.7;
-		color: var(--text);
-	}
-	.prose :global(:is(h1, h2, h3, h4)) {
-		font-family: var(--font-display);
-		font-weight: 600;
-		line-height: 1.25;
-		letter-spacing: -0.01em;
-		margin: 2em 0 0.6em;
-	}
-	.prose :global(h1) {
-		font-size: 1.6em;
-	}
-	.prose :global(h2) {
-		font-size: 1.35em;
-	}
-	.prose :global(h3) {
-		font-size: 1.15em;
-	}
-	.prose :global(p) {
-		margin: 0 0 1.1em;
-	}
-	.prose :global(a) {
-		color: var(--brand);
-		text-decoration: underline;
-		text-underline-offset: 2px;
-	}
-	.prose :global(:is(ul, ol)) {
-		margin: 0 0 1.1em;
-		padding-inline-start: 1.4em;
-	}
-	.prose :global(li) {
-		margin: 0.3em 0;
-	}
-	.prose :global(blockquote) {
-		margin: 1.4em 0;
-		padding-inline-start: 1em;
-		border-inline-start: 3px solid var(--brand);
-		color: var(--text-muted);
-	}
-	.prose :global(hr) {
-		margin: 2.4em 0;
-		border: 0;
-		border-top: 1px solid var(--border);
-	}
-	.prose :global(code) {
-		font-family: var(--font-mono);
-		font-size: 0.87em;
-		padding: 0.12em 0.35em;
-		border-radius: 4px;
-		background: var(--surface);
-		border: 1px solid var(--border);
-	}
-	.prose :global(pre) {
-		margin: 1.4em 0;
-		padding: 14px 16px;
-		overflow-x: auto;
-		border: 1px solid var(--border);
-		border-radius: var(--radius);
-		background: var(--surface);
-		font-size: 13.5px;
-		line-height: 1.6;
-	}
-	.prose :global(pre code) {
-		padding: 0;
-		border: 0;
-		background: none;
-		font-size: inherit;
-	}
-	.prose :global(img),
-	.prose :global(svg) {
-		max-width: 100%;
-		height: auto;
-	}
-	.prose :global(.typst-figure) {
-		margin: 1.6em 0;
-		overflow-x: auto;
-	}
-	.prose :global(.typst-figure img) {
-		display: block;
-		margin: 0 auto;
-	}
-	.prose :global(table) {
-		width: 100%;
-		margin: 1.4em 0;
-		border-collapse: collapse;
-		font-family: var(--font-ui);
-		font-size: 14px;
-	}
-	.prose :global(:is(th, td)) {
-		padding: 7px 10px;
-		border: 1px solid var(--border);
-		text-align: start;
-	}
-	.prose :global(th) {
-		background: var(--surface);
-		font-weight: 600;
 	}
 
 	@media (max-width: 720px) {

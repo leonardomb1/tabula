@@ -66,6 +66,31 @@ export async function resolveDocRefs(
 	return map;
 }
 
+/** As resolveDocRefs, but only published targets — for wiki rendering. */
+export async function resolvePublicDocRefs(
+	workspaceId: string,
+	refs: string[]
+): Promise<Map<string, DocRef>> {
+	const map = new Map<string, DocRef>();
+	if (refs.length === 0) return map;
+	const rows = await db
+		.select({ id: docs.id, slug: docs.slug, title: docs.title, publicSlug: docs.publicSlug })
+		.from(docs)
+		.where(
+			and(
+				eq(docs.workspaceId, workspaceId),
+				eq(docs.isPublic, true),
+				isNull(docs.deletedAt),
+				or(inArray(docs.slug, refs), inArray(docs.id, refs))
+			)
+		);
+	for (const r of rows) {
+		map.set(r.slug, r);
+		map.set(r.id, r);
+	}
+	return map;
+}
+
 async function computeLinks(
 	workspaceId: string,
 	source: string

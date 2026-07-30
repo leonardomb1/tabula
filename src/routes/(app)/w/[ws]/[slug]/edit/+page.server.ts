@@ -3,6 +3,7 @@ import * as m from '$lib/paraglide/messages';
 import { requireRole } from '$lib/server/apiGuards';
 import { getDocBySlug, softDeleteDoc, updateDoc } from '$lib/server/docs';
 import { readDocForm } from '$lib/server/docForm';
+import { onDocUpdated, requestPublish, unpublish } from '$lib/server/publication';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -25,7 +26,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 export const actions: Actions = {
 	save: async ({ request, params, locals }) => {
-		const { user } = requireRole(locals, params.ws, 'editor');
+		const { user, access } = requireRole(locals, params.ws, 'editor');
 		const doc = await getDocBySlug(params.ws, params.slug);
 		if (!doc) error(404);
 
@@ -34,18 +35,29 @@ export const actions: Actions = {
 			return fail(400, { error: m.editor_error_title_required(), ...values });
 		}
 
-		await updateDoc(
+		// isPublic never flows straight through: publication is policy-gated.
+		const updated = await updateDoc(
 			doc.id,
 			{
 				title: values.title,
 				mode: values.mode,
 				source: values.source,
 				tags: values.tags,
-				isPublic: values.isPublic,
 				frontmatter: values.frontmatter
 			},
 			user.username
 		);
+
+		if (values.isPublic && !updated.isPublic) {
+			const outcome = await requestPublish(updated, access);
+			if (outcome === 'forbidden') {
+				return fail(403, { error: m.editor_error_publish_forbidden(), ...values });
+			}
+		} else if (!values.isPublic && updated.isPublic) {
+			await unpublish(updated.id);
+		} else {
+			await onDocUpdated(updated);
+		}
 
 		redirect(303, `/w/${params.ws}/${doc.slug}`);
 	},

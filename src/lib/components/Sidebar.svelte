@@ -101,6 +101,14 @@
 			<span class="count">{total}</span>
 		</a>
 
+		<a class="item" href="/wiki">
+			<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<circle cx="12" cy="12" r="9" />
+				<path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+			</svg>
+			<span class="label">{m.wiki_title()}</span>
+		</a>
+
 		{#if canWrite}
 			<a class="item" class:active={activePath === templatesHref(current.id)} href={templatesHref(current.id)}>
 				<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

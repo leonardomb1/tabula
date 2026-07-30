@@ -78,6 +78,9 @@
 					<a class="row" href={docHref(workspace.id, doc.slug)}>
 						<span class="mode" class:typst={doc.mode === 'typst'} aria-hidden="true"></span>
 						<span class="title">{doc.title || m.doc_untitled()}</span>
+						{#if doc.isPublic}
+							<span class="public-mark">{m.doc_public_badge()}</span>
+						{/if}
 						<span class="tags">
 							{#each doc.tags.slice(0, 3) as tag (tag)}
 								<span class="chip">{tag}</span>
@@ -260,6 +263,18 @@
 		white-space: nowrap;
 		font-size: 14.5px;
 		font-weight: 500;
+	}
+
+	.public-mark {
+		flex-shrink: 0;
+		padding: 1px 7px;
+		border: 1px solid var(--brand);
+		border-radius: 999px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--brand);
 	}
 
 	.tags {

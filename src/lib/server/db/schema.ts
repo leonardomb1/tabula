@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
 	pgTable,
 	pgEnum,
+	date,
 	text,
 	integer,
 	boolean,
@@ -77,6 +78,8 @@ export const docs = pgTable(
 		tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
 
 		isPublic: boolean('is_public').notNull().default(false),
+		publicSlug: text('public_slug'),
+		publishedVersionNo: integer('published_version_no'),
 		frontmatter: jsonb('frontmatter').notNull().default(sql`'{}'::jsonb`),
 
 		createdBy: text('created_by'),
@@ -237,6 +240,54 @@ export const blockedUsers = pgTable('blocked_users', {
 	createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 });
 
+export const docReviews = pgTable(
+	'doc_reviews',
+	{
+		id: serial('id').primaryKey(),
+		docId: text('doc_id')
+			.notNull()
+			.references(() => docs.id, { onDelete: 'cascade' }),
+		kind: text('kind').notNull(),
+		state: text('state').notNull().default('open'),
+		versionNo: integer('version_no'),
+		requestedBy: text('requested_by'),
+		note: text('note').notNull().default(''),
+		quorum: integer('quorum').notNull().default(1),
+		resolvedBy: text('resolved_by'),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+		resolvedAt: timestamp('resolved_at', { withTimezone: true })
+	},
+	(t) => [index('doc_reviews_doc_idx').on(t.docId)]
+);
+
+export const docReviewVotes = pgTable(
+	'doc_review_votes',
+	{
+		id: serial('id').primaryKey(),
+		reviewId: integer('review_id')
+			.notNull()
+			.references(() => docReviews.id, { onDelete: 'cascade' }),
+		username: text('username').notNull(),
+		verdict: text('verdict').notNull(),
+		note: text('note').notNull().default(''),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+	},
+	(t) => [uniqueIndex('doc_review_votes_uniq').on(t.reviewId, t.username)]
+);
+
+export const docViewDaily = pgTable(
+	'doc_view_daily',
+	{
+		docId: text('doc_id')
+			.notNull()
+			.references(() => docs.id, { onDelete: 'cascade' }),
+		day: date('day').notNull(),
+		source: text('source').notNull(),
+		count: integer('count').notNull().default(0)
+	},
+	(t) => [uniqueIndex('doc_view_daily_pk').on(t.docId, t.day, t.source)]
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceBinding = typeof workspaceBindings.$inferSelect;
 export type Doc = typeof docs.$inferSelect;
@@ -249,3 +300,5 @@ export type DocTemplate = typeof docTemplates.$inferSelect;
 export type ApiToken = typeof apiTokens.$inferSelect;
 export type AccessRule = typeof accessRules.$inferSelect;
 export type BlockedUser = typeof blockedUsers.$inferSelect;
+export type DocReview = typeof docReviews.$inferSelect;
+export type DocReviewVote = typeof docReviewVotes.$inferSelect;

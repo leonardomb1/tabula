@@ -289,3 +289,114 @@ body {
 	background-clip: content-box;
 	border-radius: 6px;
 }
+
+/* Rendered document typography — shared by the app doc view and the wiki. */
+.typst-body {
+	overflow-x: auto;
+}
+.typst-body svg {
+	max-width: 100%;
+	height: auto;
+}
+
+.prose {
+	font-family: var(--font-read);
+	font-size: 17px;
+	line-height: 1.7;
+	color: var(--text);
+}
+.prose :is(h1, h2, h3, h4) {
+	font-family: var(--font-display);
+	font-weight: 600;
+	line-height: 1.25;
+	letter-spacing: -0.01em;
+	margin: 2em 0 0.6em;
+}
+.prose h1 {
+	font-size: 1.6em;
+}
+.prose h2 {
+	font-size: 1.35em;
+}
+.prose h3 {
+	font-size: 1.15em;
+}
+.prose p {
+	margin: 0 0 1.1em;
+}
+.prose a {
+	color: var(--brand);
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+.prose :is(ul, ol) {
+	margin: 0 0 1.1em;
+	padding-inline-start: 1.4em;
+}
+.prose li {
+	margin: 0.3em 0;
+}
+.prose blockquote {
+	margin: 1.4em 0;
+	padding-inline-start: 1em;
+	border-inline-start: 3px solid var(--brand);
+	color: var(--text-muted);
+}
+.prose hr {
+	margin: 2.4em 0;
+	border: 0;
+	border-top: 1px solid var(--border);
+}
+.prose code {
+	font-family: var(--font-mono);
+	font-size: 0.87em;
+	padding: 0.12em 0.35em;
+	border-radius: 4px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+}
+.prose pre {
+	margin: 1.4em 0;
+	padding: 14px 16px;
+	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--surface);
+	font-size: 13.5px;
+	line-height: 1.6;
+}
+.prose pre code {
+	padding: 0;
+	border: 0;
+	background: none;
+	font-size: inherit;
+}
+.prose img,
+.prose svg {
+	max-width: 100%;
+	height: auto;
+}
+.prose .typst-figure {
+	margin: 1.6em 0;
+	overflow-x: auto;
+}
+.prose .typst-figure img {
+	display: block;
+	margin: 0 auto;
+}
+.prose table {
+	width: 100%;
+	margin: 1.4em 0;
+	border-collapse: collapse;
+	font-family: var(--font-ui);
+	font-size: 14px;
+}
+.prose :is(th, td) {
+	padding: 7px 10px;
+	border: 1px solid var(--border);
+	text-align: start;
+}
+.prose th {
+	background: var(--surface);
+	font-weight: 600;
+}

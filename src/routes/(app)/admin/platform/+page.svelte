@@ -76,6 +76,42 @@
 	</div>
 
 	<div class="block">
+		<h2>{m.admin_public_title()}</h2>
+		<p class="hint">{m.admin_public_hint()}</p>
+
+		{#if data.published.length === 0}
+			<p class="none">{m.admin_public_empty()}</p>
+		{:else}
+			<ul class="rules">
+				{#each data.published as d (d.id)}
+					<li>
+						<a class="doc-link" href={`/wiki/${encodeURIComponent(d.publicSlug)}`}>{d.title}</a>
+						<code class="rule-value">{d.workspaceId}</code>
+						<span class="views">{d.views} {m.wiki_views()}</span>
+						<form method="POST" action="?/unpublish" use:enhance>
+							<input type="hidden" name="doc" value={d.id} />
+							<button type="submit" class="secondary">{m.admin_unpublish()}</button>
+						</form>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		{#if data.reviews.length > 0}
+			<h2 class="sub-h">{m.admin_reviews_title()}</h2>
+			<ul class="rules">
+				{#each data.reviews as r (r.id)}
+					<li>
+						<a class="doc-link" href={`/w/${encodeURIComponent(r.workspaceId)}/${encodeURIComponent(r.docSlug)}`}>{r.docTitle}</a>
+						<code class="rule-value">{r.workspaceId}</code>
+						<span class="views">{r.kind}{r.kind === 'publish' ? ` · ${r.approvals}/${r.quorum}` : ''} · {r.requestedBy}</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</div>
+
+	<div class="block">
 		<h2>{m.admin_users_title()}</h2>
 		<p class="hint">{m.admin_users_hint()}</p>
 
@@ -213,6 +249,28 @@
 
 	.rule-attr {
 		color: var(--text-muted);
+	}
+
+	.doc-link {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: var(--text);
+		text-decoration: none;
+		font-weight: 500;
+	}
+	.doc-link:hover {
+		color: var(--brand);
+	}
+	.views {
+		flex-shrink: 0;
+		font-size: 11.5px;
+		color: var(--text-faint);
+	}
+	.sub-h {
+		margin-top: 18px;
 	}
 
 	.rule-value {

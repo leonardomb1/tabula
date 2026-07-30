@@ -10,6 +10,8 @@ import {
 	removeGateRule,
 	unblockUser
 } from '$lib/server/gate';
+import { listOpenReviews, listPublishedDocs, unpublish } from '$lib/server/publication';
+import { viewCounts } from '$lib/server/views';
 import type { Actions, PageServerLoad } from './$types';
 
 function requireCentral(locals: App.Locals) {
@@ -20,12 +22,38 @@ function requireCentral(locals: App.Locals) {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const { user } = requireCentral(locals);
-	const [rules, users] = await Promise.all([listGateRules(), listKnownUsers()]);
+	const [rules, users, published, reviews] = await Promise.all([
+		listGateRules(),
+		listKnownUsers(),
+		listPublishedDocs(),
+		listOpenReviews()
+	]);
+	const views = await viewCounts(published.map((d) => d.id));
 	return {
 		rules: rules.map((r) => ({ id: r.id, attribute: r.attribute, value: r.value })),
 		users: users.map((u) => ({ ...u, lastSeenAt: u.lastSeenAt?.toISOString() ?? null })),
 		attributes: BINDABLE_ATTRIBUTES,
-		you: user.username
+		you: user.username,
+		published: published.map((d) => ({
+			id: d.id,
+			title: d.title,
+			publicSlug: d.publicSlug,
+			workspaceId: d.workspaceId,
+			updatedAt: d.updatedAt.toISOString(),
+			views: views.get(d.id) ?? 0
+		})),
+		reviews: reviews.map((r) => ({
+			id: r.id,
+			kind: r.kind,
+			docTitle: r.docTitle,
+			docSlug: r.docSlug,
+			workspaceId: r.workspaceId,
+			requestedBy: r.requestedBy,
+			note: r.note,
+			quorum: r.quorum,
+			approvals: r.approvals,
+			createdAt: r.createdAt.toISOString()
+		}))
 	};
 };
 
@@ -75,6 +103,14 @@ export const actions: Actions = {
 		const username = String(data.get('username') ?? '').trim();
 		if (!username) return fail(400, { error: 'bad_user' });
 		await unblockUser(username);
+		return { ok: true };
+	},
+
+	unpublish: async ({ request, locals }) => {
+		requireCentral(locals);
+		const id = String((await request.formData()).get('doc') ?? '');
+		if (!id) return fail(400, { error: 'bad_doc' });
+		await unpublish(id);
 		return { ok: true };
 	},
 

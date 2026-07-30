@@ -23,11 +23,19 @@ export interface RenderResult {
 
 export async function renderMarkdown(
 	source: string,
-	opts: { workspaceId: string; resolveRefs: RefResolver }
+	opts: {
+		workspaceId: string;
+		resolveRefs: RefResolver;
+		hrefFor?: (ref: DocRef) => string | null;
+	}
 ): Promise<RenderResult> {
 	const md = await getEngine();
 	const { data, content } = parseFrontmatter(source);
-	const env: WikiEnv = { workspaceId: opts.workspaceId, wikiResolve: new Map() };
+	const env: WikiEnv = {
+		workspaceId: opts.workspaceId,
+		wikiResolve: new Map(),
+		hrefFor: opts.hrefFor
+	};
 	const tokens = md.parse(content, env);
 
 	type MdToken = {

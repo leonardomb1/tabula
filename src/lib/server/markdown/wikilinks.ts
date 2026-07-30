@@ -4,11 +4,14 @@ export interface DocRef {
 	id: string;
 	slug: string;
 	title: string;
+	publicSlug?: string | null;
 }
 
 export interface WikiEnv {
 	workspaceId?: string;
 	wikiResolve?: Map<string, DocRef>;
+	/** Overrides the default /w/<ws>/<slug> href; null renders a broken link. */
+	hrefFor?: (ref: DocRef) => string | null;
 }
 
 const OPEN = 0x5b;
@@ -39,8 +42,15 @@ export const wikilinks: PluginSimple = (md) => {
 		const { target, label } = tokens[idx].meta as { target: string; label: string };
 		const esc = md.utils.escapeHtml;
 		const hit = env.wikiResolve?.get(target);
-		if (hit && env.workspaceId) {
-			return `<a class="wiki-link" href="/w/${esc(env.workspaceId)}/${esc(hit.slug)}" title="${esc(hit.title)}">${esc(label)}</a>`;
+		const href = hit
+			? env.hrefFor
+				? env.hrefFor(hit)
+				: env.workspaceId
+					? `/w/${env.workspaceId}/${hit.slug}`
+					: null
+			: null;
+		if (hit && href) {
+			return `<a class="wiki-link" href="${esc(href)}" title="${esc(hit.title)}">${esc(label)}</a>`;
 		}
 		return `<a class="wiki-link broken" title="Not found: ${esc(target)}">${esc(label)}</a>`;
 	};
