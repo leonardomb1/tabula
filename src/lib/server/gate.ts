@@ -8,6 +8,8 @@ import { eq, and } from 'drizzle-orm';
 import { db } from './db';
 import { accessRules, blockedUsers, userSettings, workspaceBindings, apiTokens, type AccessRule } from './db/schema';
 import { deleteWorkspace } from './workspaces';
+import { listAttachments } from './attachments';
+import { storage } from './storage';
 import { personalWorkspaceId } from './ids';
 import { ATTR, matchesAny } from '$lib/rbac';
 
@@ -100,10 +102,16 @@ export async function listKnownUsers(): Promise<KnownUser[]> {
 /**
  * Remove a user's footprint: personal workspace (docs, versions, attachments
  * and bindings cascade), their user-bindings elsewhere, tokens, settings, and
- * any block entry. Storage blobs of their attachments are left behind.
+ * any block entry. Blobs of the personal workspace's attachments are removed
+ * best-effort after the rows are gone; attachments they made in team
+ * workspaces stay, since those belong to the workspace.
  */
 export async function deleteUser(username: string): Promise<void> {
+	const personalKeys = (await listAttachments(personalWorkspaceId(username))).map(
+		(a) => a.storageKey
+	);
 	await deleteWorkspace(personalWorkspaceId(username));
+	await Promise.allSettled(personalKeys.map((key) => storage().remove(key)));
 	await db
 		.delete(workspaceBindings)
 		.where(and(eq(workspaceBindings.attribute, ATTR.USER), eq(workspaceBindings.value, username)));
