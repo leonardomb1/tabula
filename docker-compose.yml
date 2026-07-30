@@ -15,8 +15,6 @@
 # The app reaches Postgres through pgbouncer; migrations bypass it, because DDL and
 # advisory locks need a connection that is not reassigned between statements.
 #
-# The data volumes are pinned to the names the original `refactor` project
-# created, so renaming the compose project never orphans the database.
 name: tabula
 
 x-app: &app
@@ -194,8 +192,6 @@ services:
 
 volumes:
   tabula-db-data:
-    name: refactor_tabula-db-data
   tabula-content:
-    name: refactor_tabula-content
   caddy-data:
   caddy-config:
