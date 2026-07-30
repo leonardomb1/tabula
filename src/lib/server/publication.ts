@@ -8,7 +8,15 @@
 
 import { and, desc, eq, isNull, isNotNull, sql } from 'drizzle-orm';
 import { db } from './db';
-import { docReviews, docReviewVotes, docVersions, docs, type Doc, type DocReview } from './db/schema';
+import {
+	docReviews,
+	docReviewVotes,
+	docVersions,
+	docs,
+	workspaces,
+	type Doc,
+	type DocReview
+} from './db/schema';
 import { getPolicy } from './workspaces';
 import { slugify } from './ids';
 import type { Access } from './access';
@@ -212,6 +220,7 @@ export interface PublishedDoc {
 	title: string;
 	publicSlug: string;
 	workspaceId: string;
+	workspaceName: string;
 	publishedVersionNo: number | null;
 	updatedAt: Date;
 	tags: string[];
@@ -234,11 +243,13 @@ export async function listPublishedDocs(): Promise<PublishedDoc[]> {
 			title: docs.title,
 			publicSlug: docs.publicSlug,
 			workspaceId: docs.workspaceId,
+			workspaceName: workspaces.name,
 			publishedVersionNo: docs.publishedVersionNo,
 			updatedAt: docs.updatedAt,
 			tags: docs.tags
 		})
 		.from(docs)
+		.innerJoin(workspaces, eq(workspaces.id, docs.workspaceId))
 		.where(and(eq(docs.isPublic, true), isNotNull(docs.publicSlug), isNull(docs.deletedAt)))
 		.orderBy(desc(docs.updatedAt));
 	return rows.filter((r): r is typeof r & { publicSlug: string } => r.publicSlug !== null);
