@@ -80,7 +80,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		},
 		html,
 		renderError,
-		backlinks: backlinks.map((b) => ({ id: b.id, slug: b.slug, title: b.title }))
+		// Cross-workspace viewers of a public doc must not see private siblings.
+		backlinks: backlinks
+			.filter((b) => b.isPublic || locals.access?.can(b.workspaceId))
+			.map((b) => ({ id: b.id, slug: b.slug, title: b.title }))
 	};
 };
 

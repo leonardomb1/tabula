@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Access } from '../access';
 import { searchDocs } from '../search';
 import { getDoc, getDocBySlug, listDocs, getBacklinks, resolveDocRefs } from '../docs';
+import { getPublishedDoc, openReview, requestPublish } from '../publication';
 import { listWorkspaces } from '../workspaces';
 import { getTemplate, listTemplates, parseTemplateMeta, subjectInputs } from '../templates';
 import { renderMarkdownToPdfKeyed } from '../markdown/pdf';
@@ -89,7 +90,16 @@ export function buildMcpServer(access: Access): McpServer {
 		async ({ workspaceId }) => {
 			if (!access.can(workspaceId)) return fail(`No access to workspace ${workspaceId}`);
 			const docs = await listDocs(workspaceId);
-			return ok(docs.map((d) => ({ id: d.id, slug: d.slug, title: d.title, mode: d.mode })));
+			return ok(
+				docs.map((d) => ({
+					id: d.id,
+					slug: d.slug,
+					title: d.title,
+					mode: d.mode,
+					isPublic: d.isPublic,
+					publicSlug: d.publicSlug
+				}))
+			);
 		}
 	);
 
@@ -112,6 +122,7 @@ export function buildMcpServer(access: Access): McpServer {
 					: null;
 			if (!doc) return fail('Document not found (provide id, or workspaceId + slug)');
 			if (!doc.isPublic && !access.can(doc.workspaceId)) return fail('Access denied');
+			const pending = await openReview(doc.id, 'publish');
 			return ok({
 				id: doc.id,
 				workspaceId: doc.workspaceId,
@@ -120,7 +131,64 @@ export function buildMcpServer(access: Access): McpServer {
 				mode: doc.mode,
 				tags: doc.tags,
 				updatedAt: doc.updatedAt,
+				isPublic: doc.isPublic,
+				publicSlug: doc.publicSlug,
+				publishedVersionNo: doc.publishedVersionNo,
+				publicationPending: !!pending,
 				source: doc.source
+			});
+		}
+	);
+
+	server.registerTool(
+		'get_published_doc',
+		{
+			title: 'Get a published document',
+			description:
+				'Fetch what the wiki actually serves for a public slug: the approved snapshot, which may be older than the live source under review.',
+			inputSchema: { publicSlug: z.string() }
+		},
+		async ({ publicSlug }) => {
+			const hit = await getPublishedDoc(publicSlug);
+			if (!hit) return fail('No published document under that slug');
+			return ok({
+				id: hit.doc.id,
+				workspaceId: hit.doc.workspaceId,
+				publicSlug: hit.doc.publicSlug,
+				title: hit.title,
+				mode: hit.doc.mode,
+				tags: hit.doc.tags,
+				publishedVersionNo: hit.doc.publishedVersionNo,
+				source: hit.source
+			});
+		}
+	);
+
+	server.registerTool(
+		'request_publish',
+		{
+			title: 'Request publication',
+			description:
+				'Publish a document to the wiki, or open a review when workspace policy requires approval. Returns published, pending, or forbidden.',
+			inputSchema: {
+				id: z.string().optional(),
+				workspaceId: z.string().optional(),
+				slug: z.string().optional()
+			}
+		},
+		async ({ id, workspaceId, slug }) => {
+			const doc = id
+				? await getDoc(id)
+				: workspaceId && slug
+					? await getDocBySlug(workspaceId, slug)
+					: null;
+			if (!doc) return fail('Document not found (provide id, or workspaceId + slug)');
+			if (!access.can(doc.workspaceId, 'editor')) return fail('Requires editor access');
+			const outcome = await requestPublish(doc, access);
+			const fresh = outcome === 'published' ? await getDoc(doc.id) : null;
+			return ok({
+				outcome,
+				publicSlug: fresh?.publicSlug ?? null
 			});
 		}
 	);
@@ -249,7 +317,10 @@ export function buildMcpServer(access: Access): McpServer {
 			const doc = await getDoc(id);
 			if (!doc) return fail('Document not found');
 			if (!doc.isPublic && !access.can(doc.workspaceId)) return fail('Access denied');
-			const back = await getBacklinks(doc);
+			// Only backlinks the caller could open: private siblings stay invisible.
+			const back = (await getBacklinks(doc)).filter(
+				(d) => d.isPublic || access.can(d.workspaceId)
+			);
 			return ok(back.map((d) => ({ id: d.id, workspaceId: d.workspaceId, slug: d.slug, title: d.title })));
 		}
 	);
