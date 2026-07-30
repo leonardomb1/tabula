@@ -38,7 +38,9 @@ export const actions: Actions = {
 					? m.login_error_locked()
 					: result.reason === 'disabled'
 						? m.login_error_disabled()
-						: m.login_error_invalid();
+						: result.reason === 'blocked' || result.reason === 'not_allowed'
+							? m.login_error_not_allowed()
+							: m.login_error_invalid();
 			return fail(result.reason === 'invalid' ? 401 : 403, { error: message, identifier });
 		}
 

@@ -1,4 +1,5 @@
 import { ATTR, type Principal } from '../access';
+import { gateVerdict } from '../gate';
 import { kauthAuthenticate, type KauthRejection, type KauthUser } from './kauth';
 import { signSession, verifySession, type SessionClaims } from './session';
 
@@ -46,9 +47,11 @@ function buildClaims(u: KauthUser): Record<string, string[]> {
 	return claims;
 }
 
+export type LoginDenial = KauthRejection | 'blocked' | 'not_allowed';
+
 export type LoginResult =
 	| { ok: true; user: SessionUser }
-	| { ok: false; reason: KauthRejection; code: string };
+	| { ok: false; reason: LoginDenial; code: string };
 
 export async function login(identifier: string, password: string): Promise<LoginResult> {
 	const result = await kauthAuthenticate(identifier, password);
@@ -70,6 +73,9 @@ export async function login(identifier: string, password: string): Promise<Login
 		costCenterCode: str(extra.costCenterCode),
 		costCenterDescription: str(extra.costCenterDescription)
 	};
+
+	const verdict = await gateVerdict(user);
+	if (verdict !== 'ok') return { ok: false, reason: verdict, code: verdict };
 
 	return { ok: true, user };
 }

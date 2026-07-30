@@ -49,7 +49,7 @@ export const load: LayoutServerLoad = async ({ locals, url, cookies }) => {
 			jobTitle: user.title ?? '',
 			crown: user.isPlatformAdmin
 				? ('gold' as const)
-				: workspaces.some((w) => w.role === 'maintainer')
+				: workspaces.some((w) => w.role === 'maintainer' && w.kind !== 'personal')
 					? ('silver' as const)
 					: null,
 			canAdmin:

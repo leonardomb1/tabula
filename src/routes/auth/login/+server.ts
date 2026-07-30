@@ -1,6 +1,8 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { SESSION_COOKIE, cookieOptions, issueToken, login } from '$lib/server/auth';
 import { recordDirectorySnapshot } from '$lib/server/userSettings';
+import { ensureWorkspace } from '$lib/server/workspaces';
+import { personalWorkspaceId } from '$lib/server/ids';
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
 	const body = (await request.json().catch(() => ({}))) as {
@@ -19,12 +21,20 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	}
 
 	if (!result.ok) {
-		const status = result.reason === 'locked' ? 423 : result.reason === 'disabled' ? 403 : 401;
+		const status =
+			result.reason === 'locked'
+				? 423
+				: result.reason === 'disabled' || result.reason === 'blocked' || result.reason === 'not_allowed'
+					? 403
+					: 401;
 		return json({ error: result.reason, code: result.code }, { status });
 	}
 
 	const { user } = result;
 	await recordDirectorySnapshot(user).catch(() => {});
+	await ensureWorkspace(personalWorkspaceId(user.username), user.displayName ?? user.username, 'personal').catch(
+		() => {}
+	);
 	cookies.set(SESSION_COOKIE, issueToken(user), cookieOptions());
 	return json({
 		user: {

@@ -3,6 +3,7 @@ import { and, desc, eq, isNull, gt, or } from 'drizzle-orm';
 import { db } from './db';
 import { apiTokens, type ApiToken } from './db/schema';
 import { newDocId } from './ids';
+import { isBlocked } from './gate';
 import type { Principal } from './access';
 import type { SessionUser } from './auth';
 
@@ -51,6 +52,7 @@ export async function principalFromToken(token: string): Promise<Principal | nul
 		)
 		.limit(1);
 	if (!row) return null;
+	if (await isBlocked(row.username)) return null;
 
 	await db.update(apiTokens).set({ lastUsedAt: new Date() }).where(eq(apiTokens.id, row.id));
 

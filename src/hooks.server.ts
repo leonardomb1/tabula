@@ -3,6 +3,7 @@ import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { cookieOptions, SESSION_COOKIE, userFromClaims, verifySession } from '$lib/server/auth';
+import { isBlocked } from '$lib/server/gate';
 import { loadAccess } from '$lib/server/access';
 
 /**
@@ -23,7 +24,7 @@ const originalHandle: Handle = async ({ event, resolve }) => {
 	if (token) {
 		const claims = verifySession(token);
 
-		if (claims) {
+		if (claims && !(await isBlocked(claims.username))) {
 			const user = userFromClaims(claims);
 
 			event.locals.user = user;

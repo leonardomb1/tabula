@@ -55,9 +55,12 @@
 			<p class="sub">{m.admin_subtitle()}</p>
 		</div>
 		{#if data.isPlatformAdmin}
-			<button type="button" class="primary" onclick={() => (creating = !creating)}>
-				{m.admin_new_workspace()}
-			</button>
+			<div class="header-actions">
+				<a class="secondary" href="/admin/platform">{m.admin_platform()}</a>
+				<button type="button" class="primary" onclick={() => (creating = !creating)}>
+					{m.admin_new_workspace()}
+				</button>
+			</div>
 		{/if}
 	</header>
 
@@ -372,6 +375,15 @@
 		border: 0;
 		background: var(--brand);
 		color: #fff;
+	}
+	.header-actions {
+		display: flex;
+		gap: 8px;
+	}
+	a.secondary {
+		display: inline-flex;
+		align-items: center;
+		text-decoration: none;
 	}
 	.secondary {
 		border: 1px solid var(--border-strong);

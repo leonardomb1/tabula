@@ -220,6 +220,23 @@ export const apiTokens = pgTable(
 	]
 );
 
+export const accessRules = pgTable(
+	'access_rules',
+	{
+		id: serial('id').primaryKey(),
+		attribute: text('attribute').notNull(),
+		value: text('value').notNull().default('*'),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+	},
+	(t) => [uniqueIndex('access_rules_uniq').on(t.attribute, t.value)]
+);
+
+export const blockedUsers = pgTable('blocked_users', {
+	username: text('username').primaryKey(),
+	blockedBy: text('blocked_by'),
+	createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+});
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceBinding = typeof workspaceBindings.$inferSelect;
 export type Doc = typeof docs.$inferSelect;
@@ -230,3 +247,5 @@ export type Attachment = typeof attachments.$inferSelect;
 export type UserSettings = typeof userSettings.$inferSelect;
 export type DocTemplate = typeof docTemplates.$inferSelect;
 export type ApiToken = typeof apiTokens.$inferSelect;
+export type AccessRule = typeof accessRules.$inferSelect;
+export type BlockedUser = typeof blockedUsers.$inferSelect;
