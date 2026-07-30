@@ -2,7 +2,7 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import type { Handle, HandleServerError } from '@sveltejs/kit';
-import { SESSION_COOKIE, userFromClaims, verifySession } from '$lib/server/auth';
+import { cookieOptions, SESSION_COOKIE, userFromClaims, verifySession } from '$lib/server/auth';
 import { loadAccess } from '$lib/server/access';
 
 /**
@@ -29,7 +29,7 @@ const originalHandle: Handle = async ({ event, resolve }) => {
 			event.locals.user = user;
 			event.locals.access = await loadAccess(user);
 		} else {
-			event.cookies.delete(SESSION_COOKIE, { path: '/' });
+			event.cookies.delete(SESSION_COOKIE, cookieOptions());
 		}
 	}
 
