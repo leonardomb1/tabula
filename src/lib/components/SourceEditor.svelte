@@ -6,13 +6,15 @@
 		onchange,
 		ariaLabel,
 		language = 'markdown',
-		inputKeys = []
+		inputKeys = [],
+		onuploadimage
 	}: {
 		value?: string;
 		onchange?: () => void;
 		ariaLabel: string;
 		language?: 'markdown' | 'typst';
 		inputKeys?: string[];
+		onuploadimage?: (file: File) => Promise<{ url: string; filename: string } | null>;
 	} = $props();
 
 	let host = $state<HTMLDivElement | null>(null);
@@ -155,11 +157,39 @@
 				}
 			});
 
+			// Reads onuploadimage at event time, so the parent can enable/disable it live.
+			const uploadFiles = (
+				list: FileList | null | undefined,
+				v: import('@codemirror/view').EditorView
+			): boolean => {
+				const upload = onuploadimage;
+				if (!upload) return false;
+				const images = Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
+				if (!images.length) return false;
+				void (async () => {
+					for (const f of images) {
+						const res = await upload(f).catch(() => null);
+						if (!res) continue;
+						const insert = `![${res.filename}](${res.url})`;
+						const range = v.state.selection.main;
+						v.dispatch({
+							changes: { from: range.from, to: range.to, insert },
+							selection: { anchor: range.from + insert.length }
+						});
+					}
+				})();
+				return true;
+			};
+
 			view = new EditorView({
 				parent: host,
 				state: EditorState.create({
 					doc: value,
 					extensions: [
+						EditorView.domEventHandlers({
+							paste: (event, v) => uploadFiles(event.clipboardData?.files, v),
+							drop: (event, v) => uploadFiles(event.dataTransfer?.files, v)
+						}),
 						lineNumbers(),
 						highlightActiveLine(),
 						highlightActiveLineGutter(),

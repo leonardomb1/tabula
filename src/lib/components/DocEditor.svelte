@@ -80,6 +80,17 @@
 		if (showPreview) schedulePreview();
 	}
 
+	async function uploadImage(file: File): Promise<{ url: string; filename: string } | null> {
+		const body = new FormData();
+		body.append('file', file, file.name || 'pasted.png');
+		const res = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/attachments`, {
+			method: 'POST',
+			body
+		});
+		if (!res.ok) return null;
+		return (await res.json()) as { url: string; filename: string };
+	}
+
 	function onKeydown(event: KeyboardEvent) {
 		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
 			event.preventDefault();
@@ -173,6 +184,7 @@
 					bind:value={source}
 					onchange={schedulePreview}
 					ariaLabel={m.editor_source_label()}
+					onuploadimage={mode === 'markdown' ? uploadImage : undefined}
 				/>
 			{/if}
 			<textarea

@@ -73,13 +73,21 @@ export async function loadAccess(p: Principal): Promise<Access> {
 
 	roles.set(personalWorkspaceId(p.username), 'maintainer');
 
+	// Admin standing never reaches into someone else's personal workspace.
+	const foreignPersonal = (id: string) =>
+		id.startsWith('personal-') && id !== personalWorkspaceId(p.username);
+
 	let allIds: string[] | null = null;
 	if (p.isPlatformAdmin) {
-		allIds = (await db.select({ id: workspaces.id }).from(workspaces)).map((w) => w.id);
+		allIds = (await db.select({ id: workspaces.id }).from(workspaces))
+			.map((w) => w.id)
+			.filter((id) => !foreignPersonal(id));
 	}
 
 	const roleOf = (workspaceId: string): Role | null =>
-		p.isPlatformAdmin ? 'maintainer' : (roles.get(workspaceId) ?? null);
+		p.isPlatformAdmin && !foreignPersonal(workspaceId)
+			? 'maintainer'
+			: (roles.get(workspaceId) ?? null);
 
 	return {
 		principal: p,

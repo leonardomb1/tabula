@@ -260,11 +260,4 @@
 		opacity: 0.65;
 		cursor: default;
 	}
-
-	.footnote {
-		margin: 1.5rem 0 0;
-		text-align: center;
-		color: var(--text-muted);
-		font-size: 0.75rem;
-	}
 </style>
