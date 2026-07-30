@@ -22,16 +22,22 @@ function sessionTtlSeconds(): number {
 }
 
 function adminGroups(): string[] {
-	return (process.env.PLATFORM_ADMIN_GROUPS ?? 'GG_BRA_TI_DOCS_ADMINS')
+	return (process.env.PLATFORM_ADMIN_GROUPS ?? '')
 		.split(/[|,]/)
 		.map((g) => g.trim())
 		.filter(Boolean);
 }
 
+// memberOf may carry bare names or full DNs; expose both so either form matches.
+function groupNames(memberOf: string[]): string[] {
+	const names = memberOf.map((g) => /^cn=([^,]+)/i.exec(g)?.[1] ?? g);
+	return [...new Set([...memberOf, ...names])];
+}
+
 function buildClaims(u: KauthUser): Record<string, string[]> {
 	const claims: Record<string, string[]> = {
 		[ATTR.USER]: [u.sAMAccountName],
-		[ATTR.AD_GROUP]: u.memberOf ?? []
+		[ATTR.AD_GROUP]: groupNames(u.memberOf ?? [])
 	};
 	const costCenter = u.additionalInfo?.costCenterCode;
 	if (typeof costCenter === 'string' && costCenter) {
@@ -49,14 +55,14 @@ export async function login(identifier: string, password: string): Promise<Login
 	if (!result.ok) return result;
 	const u = result.user;
 
-	const admin = adminGroups();
+	const admin = new Set(adminGroups().map((g) => g.toLowerCase()));
 	const extra = u.additionalInfo ?? {};
 	const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 
 	const user: SessionUser = {
 		username: u.sAMAccountName,
 		claims: buildClaims(u),
-		isPlatformAdmin: u.memberOf.some((g) => admin.includes(g)),
+		isPlatformAdmin: groupNames(u.memberOf ?? []).some((g) => admin.has(g.toLowerCase())),
 		displayName: u.displayName,
 		mail: u.mail,
 		title: u.title,

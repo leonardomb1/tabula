@@ -2,6 +2,8 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { SESSION_COOKIE, cookieOptions, issueToken, login } from '$lib/server/auth';
 import { recordDirectorySnapshot } from '$lib/server/userSettings';
+import { ensureWorkspace } from '$lib/server/workspaces';
+import { personalWorkspaceId } from '$lib/server/ids';
 import type { PageServerLoad } from './$types';
 
 function safeRedirect(target: string | null): string {
@@ -41,6 +43,11 @@ export const actions: Actions = {
 		}
 
 		await recordDirectorySnapshot(result.user).catch(() => {});
+		await ensureWorkspace(
+			personalWorkspaceId(result.user.username),
+			result.user.displayName ?? result.user.username,
+			'personal'
+		).catch(() => {});
 
 		cookies.set(SESSION_COOKIE, issueToken(result.user), cookieOptions());
 		redirect(303, safeRedirect(url.searchParams.get('redirectTo')));
