@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
 	import * as m from '$lib/paraglide/messages';
 	import type { PageProps } from './$types';
 
@@ -35,9 +36,12 @@
 	{/if}
 
 	<footer>
+		<a class="request" href={`/wiki/${encodeURIComponent(page.params.slug ?? '')}/pdf`} target="_blank" rel="noopener">
+			{m.doc_export_pdf()}
+		</a>
 		{#if data.updateRequested || form?.requested}
 			<span class="requested">{m.wiki_request_update_done()}</span>
-		{:else}
+		{:else if data.canRequestUpdate}
 			<form method="POST" action="?/requestUpdate" use:enhance>
 				<button type="submit" class="request">{m.wiki_request_update()}</button>
 			</form>

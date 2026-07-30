@@ -2,6 +2,7 @@ import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { SESSION_COOKIE, cookieOptions, issueToken, login } from '$lib/server/auth';
 import { recordDirectorySnapshot } from '$lib/server/userSettings';
+import { throttled } from '$lib/server/throttle';
 import { ensureWorkspace } from '$lib/server/workspaces';
 import { personalWorkspaceId } from '$lib/server/ids';
 import type { PageServerLoad } from './$types';
@@ -16,13 +17,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, cookies, url }) => {
+	default: async ({ request, cookies, url, getClientAddress }) => {
 		const data = await request.formData();
 		const identifier = String(data.get('identifier') ?? '').trim();
 		const password = String(data.get('password') ?? '');
 
 		if (!identifier || !password) {
 			return fail(400, { error: m.login_error_required(), identifier });
+		}
+		if (throttled(`login:${identifier.toLowerCase()}:${getClientAddress()}`)) {
+			return fail(429, { error: m.login_error_throttled(), identifier });
 		}
 
 		let result;

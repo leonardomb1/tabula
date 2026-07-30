@@ -155,6 +155,7 @@
 	"login_error_locked": "This account is locked. Contact IT to unlock it.",
 	"login_error_disabled": "This account is disabled or expired. Contact IT.",
 	"login_error_not_allowed": "You don't have access to Tabula. Contact IT to request it.",
+	"login_error_throttled": "Too many attempts. Try again in a minute.",
 	"role_platform_admin": "Platform admin",
 	"attr_user": "Person",
 	"attr_ad_group": "AD group",

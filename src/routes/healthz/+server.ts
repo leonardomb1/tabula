@@ -19,7 +19,8 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
 	try {
 		await db.execute(sql`select 1`);
 		return json({ ok: true, instance, db: 'up' });
-	} catch (err) {
-		return json({ ok: false, instance, db: err instanceof Error ? err.message : 'down' }, { status: 503 });
+	} catch {
+		// The raw driver error stays in logs; the wire gets a plain verdict.
+		return json({ ok: false, instance, db: 'down' }, { status: 503 });
 	}
 };

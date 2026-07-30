@@ -149,6 +149,7 @@ export const attachments = pgTable(
 		storageKey: text('storage_key').notNull(),
 		filename: text('filename').notNull(),
 		contentType: text('content_type').notNull(),
+		isPublic: boolean('is_public').notNull().default(false),
 		size: integer('size').notNull().default(0),
 		createdBy: text('created_by'),
 		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()

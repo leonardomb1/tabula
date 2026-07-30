@@ -1,6 +1,6 @@
-import { and, desc, eq, isNull, like } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { db } from './db';
-import { attachments, docs, type Attachment } from './db/schema';
+import { attachments, type Attachment } from './db/schema';
 import { newDocId } from './ids';
 import { storage } from './storage';
 
@@ -48,22 +48,6 @@ export async function getAttachment(id: string): Promise<Attachment | null> {
 	return row ?? null;
 }
 
-/** True when a live public doc in the attachment's workspace references it. */
-export async function referencedByPublicDoc(a: Attachment): Promise<boolean> {
-	const [row] = await db
-		.select({ id: docs.id })
-		.from(docs)
-		.where(
-			and(
-				eq(docs.workspaceId, a.workspaceId),
-				eq(docs.isPublic, true),
-				isNull(docs.deletedAt),
-				like(docs.source, `%${attachmentUrl(a.id)}%`)
-			)
-		)
-		.limit(1);
-	return !!row;
-}
 
 export interface RecordAttachmentInput {
 	workspaceId: string;

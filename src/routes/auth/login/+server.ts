@@ -3,14 +3,18 @@ import { SESSION_COOKIE, cookieOptions, issueToken, login } from '$lib/server/au
 import { recordDirectorySnapshot } from '$lib/server/userSettings';
 import { ensureWorkspace } from '$lib/server/workspaces';
 import { personalWorkspaceId } from '$lib/server/ids';
+import { throttled } from '$lib/server/throttle';
 
-export const POST: RequestHandler = async ({ request, cookies }) => {
+export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
 	const body = (await request.json().catch(() => ({}))) as {
 		identifier?: string;
 		password?: string;
 	};
 	if (!body.identifier || !body.password) {
 		return json({ error: 'identifier and password are required' }, { status: 400 });
+	}
+	if (throttled(`login:${body.identifier.toLowerCase()}:${getClientAddress()}`)) {
+		return json({ error: 'too many attempts' }, { status: 429 });
 	}
 
 	let result;

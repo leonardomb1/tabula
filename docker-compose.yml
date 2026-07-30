@@ -78,8 +78,7 @@ x-app: &app
     KAUTH_TOKEN: ${KAUTH_TOKEN:-}
     PLATFORM_ADMIN_GROUPS: ${PLATFORM_ADMIN_GROUPS:-}
     PLATFORM_ADMIN_USERS: ${PLATFORM_ADMIN_USERS:-}
-    # Wiki exposure: off | org (signed-in users). Internet-facing mode is not
-    # offered until the anonymous hardening work lands.
+    # Wiki exposure: off | org (signed-in users) | anonymous (internet-facing).
     WIKI_MODE: ${WIKI_MODE:-org}
     BRAND_NAME: ${BRAND_NAME:-}
     BRAND_COMPANY: ${BRAND_COMPANY:-}

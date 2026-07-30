@@ -46,7 +46,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		html,
 		renderError,
 		views,
-		updateRequested
+		updateRequested,
+		canRequestUpdate: !!locals.user
 	};
 };
 

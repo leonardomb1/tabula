@@ -6,9 +6,10 @@
  * re-approved. Unpublishing is never gated, matching the spec.
  */
 
-import { and, desc, eq, isNull, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, isNotNull, notInArray, sql } from 'drizzle-orm';
 import { db } from './db';
 import {
+	attachments,
 	docReviews,
 	docReviewVotes,
 	docVersions,
@@ -45,21 +46,69 @@ async function uniquePublicSlug(title: string, docId: string): Promise<string> {
 	}
 }
 
+const ATTACHMENT_REF = /\/api\/attachments\/([a-z0-9]+)/g;
+
+/**
+ * Recompute which of a workspace's attachments the wiki exposes: exactly those
+ * referenced by the source each published doc actually serves (its snapshot).
+ * Keeps the anonymous serving path a flag read instead of a LIKE scan.
+ */
+async function syncAttachmentExposure(workspaceId: string): Promise<void> {
+	const published = await db
+		.select({ id: docs.id, source: docs.source, publishedVersionNo: docs.publishedVersionNo })
+		.from(docs)
+		.where(and(eq(docs.workspaceId, workspaceId), eq(docs.isPublic, true), isNull(docs.deletedAt)));
+
+	const refs = new Set<string>();
+	for (const d of published) {
+		let src = d.source;
+		if (d.publishedVersionNo !== null) {
+			const [v] = await db
+				.select({ source: docVersions.source })
+				.from(docVersions)
+				.where(and(eq(docVersions.docId, d.id), eq(docVersions.versionNo, d.publishedVersionNo)))
+				.limit(1);
+			if (v) src = v.source;
+		}
+		for (const m of src.matchAll(ATTACHMENT_REF)) refs.add(m[1]);
+	}
+
+	if (refs.size > 0) {
+		const ids = [...refs];
+		await db
+			.update(attachments)
+			.set({ isPublic: true })
+			.where(and(eq(attachments.workspaceId, workspaceId), inArray(attachments.id, ids)));
+		await db
+			.update(attachments)
+			.set({ isPublic: false })
+			.where(and(eq(attachments.workspaceId, workspaceId), notInArray(attachments.id, ids)));
+	} else {
+		await db
+			.update(attachments)
+			.set({ isPublic: false })
+			.where(eq(attachments.workspaceId, workspaceId));
+	}
+}
+
 async function publishNow(doc: Doc): Promise<void> {
 	const publicSlug = doc.publicSlug ?? (await uniquePublicSlug(doc.title, doc.id));
 	await db
 		.update(docs)
 		.set({ isPublic: true, publicSlug, publishedVersionNo: await latestVersionNo(doc.id) })
 		.where(eq(docs.id, doc.id));
+	await syncAttachmentExposure(doc.workspaceId);
 }
 
 /** Never review-gated; publicSlug is kept so a re-publish restores old links. */
 export async function unpublish(docId: string): Promise<void> {
+	const [doc] = await db.select().from(docs).where(eq(docs.id, docId)).limit(1);
 	await db.update(docs).set({ isPublic: false, publishedVersionNo: null }).where(eq(docs.id, docId));
 	await db
 		.update(docReviews)
 		.set({ state: 'rejected', resolvedAt: new Date() })
 		.where(and(eq(docReviews.docId, docId), eq(docReviews.kind, 'publish'), eq(docReviews.state, 'open')));
+	if (doc) await syncAttachmentExposure(doc.workspaceId);
 }
 
 export async function openReview(docId: string, kind: string): Promise<DocReview | null> {
@@ -117,6 +166,7 @@ export async function onDocUpdated(doc: Doc): Promise<void> {
 			.update(docs)
 			.set({ publishedVersionNo: await latestVersionNo(doc.id) })
 			.where(eq(docs.id, doc.id));
+		await syncAttachmentExposure(doc.workspaceId);
 	}
 }
 

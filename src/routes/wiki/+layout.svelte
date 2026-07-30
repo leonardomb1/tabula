@@ -22,7 +22,11 @@
 			<span class="divider" aria-hidden="true"></span>
 			<span class="site">{m.wiki_title()}</span>
 		</a>
-		<a class="to-app" href="/">{m.wiki_open_in_app()}</a>
+		{#if data.signedIn}
+			<a class="to-app" href="/">{m.wiki_open_in_app()}</a>
+		{:else}
+			<a class="to-app" href="/login?redirectTo=%2Fwiki">{m.login_submit()}</a>
+		{/if}
 	</header>
 	<main>
 		{@render children()}
