@@ -115,9 +115,13 @@ services:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+    # Healthy, not just started: Caddy's first probes otherwise race the app
+    # boot, mark both upstreams down, and 503 early requests after a deploy.
     depends_on:
-      - app1
-      - app2
+      app1:
+        condition: service_healthy
+      app2:
+        condition: service_healthy
 
   app1:
     <<: *app
