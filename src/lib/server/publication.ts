@@ -217,7 +217,17 @@ export interface PublishedDoc {
 	tags: string[];
 }
 
+/** Docs made public before the wiki existed lack a slug/snapshot; heal them. */
+async function backfillLegacyPublished(): Promise<void> {
+	const legacy = await db
+		.select()
+		.from(docs)
+		.where(and(eq(docs.isPublic, true), sql`${docs.publicSlug} IS NULL`, isNull(docs.deletedAt)));
+	for (const doc of legacy) await publishNow(doc);
+}
+
 export async function listPublishedDocs(): Promise<PublishedDoc[]> {
+	await backfillLegacyPublished();
 	const rows = await db
 		.select({
 			id: docs.id,
