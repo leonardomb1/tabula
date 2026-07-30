@@ -22,11 +22,19 @@ function sessionTtlSeconds(): number {
 	return (Number.isFinite(hours) && hours > 0 ? hours : 8) * 3600;
 }
 
-function adminGroups(): string[] {
-	return (process.env.PLATFORM_ADMIN_GROUPS ?? '')
+function envList(value: string | undefined): string[] {
+	return (value ?? '')
 		.split(/[|,]/)
 		.map((g) => g.trim())
 		.filter(Boolean);
+}
+
+function adminGroups(): string[] {
+	return envList(process.env.PLATFORM_ADMIN_GROUPS);
+}
+
+function adminUsers(): string[] {
+	return envList(process.env.PLATFORM_ADMIN_USERS);
 }
 
 // memberOf may carry bare names or full DNs; expose both so either form matches.
@@ -65,7 +73,9 @@ export async function login(identifier: string, password: string): Promise<Login
 	const user: SessionUser = {
 		username: u.sAMAccountName,
 		claims: buildClaims(u),
-		isPlatformAdmin: groupNames(u.memberOf ?? []).some((g) => admin.has(g.toLowerCase())),
+		isPlatformAdmin:
+			adminUsers().some((n) => n.toLowerCase() === u.sAMAccountName.toLowerCase()) ||
+			groupNames(u.memberOf ?? []).some((g) => admin.has(g.toLowerCase())),
 		displayName: u.displayName,
 		mail: u.mail,
 		title: u.title,
