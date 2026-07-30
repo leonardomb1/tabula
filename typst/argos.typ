@@ -135,7 +135,17 @@
 #show table: it => block(above: 1.2em, below: 1.2em)[#it]
 #set table(stroke: 0.5pt + luma(200))
 
-#cmarker.render(read("/doc.md"), raw-typst: true)
+// The image handler resolves attachment images from the document root (cmarker
+// otherwise searches inside its own package) and caps them at content width.
+#cmarker.render(
+  read("/doc.md"),
+  raw-typst: true,
+  scope: (image: (path, alt: none) => layout(bounds => {
+    let img = image(path, alt: alt)
+    let size = measure(img)
+    if size.width > bounds.width { image(path, alt: alt, width: bounds.width) } else { img }
+  }))
+)
 
 #if approvals != "" [
   #pagebreak()
