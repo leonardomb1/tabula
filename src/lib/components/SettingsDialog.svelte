@@ -51,8 +51,63 @@
 		}, 500);
 	}
 
-	type Section = 'general' | 'account';
+	type Section = 'general' | 'account' | 'tokens';
 	let section = $state<Section>('general');
+
+	interface TokenRow {
+		id: string;
+		label: string;
+		createdAt: string;
+		lastUsedAt: string | null;
+		expiresAt: string | null;
+		revokedAt: string | null;
+	}
+	let tokens = $state<TokenRow[]>([]);
+	let tokensLoaded = $state(false);
+	let newLabel = $state('');
+	let minting = $state(false);
+	let freshToken = $state<string | null>(null);
+	let copied = $state(false);
+
+	async function loadTokens() {
+		const res = await fetch('/api/tokens');
+		if (!res.ok) return;
+		const body = (await res.json()) as { tokens: TokenRow[] };
+		tokens = body.tokens.filter((t) => !t.revokedAt);
+		tokensLoaded = true;
+	}
+
+	$effect(() => {
+		if (open && section === 'tokens' && !tokensLoaded) void loadTokens();
+	});
+
+	async function mint() {
+		if (minting) return;
+		minting = true;
+		copied = false;
+		const res = await fetch('/api/tokens', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ label: newLabel.trim() || 'token' })
+		});
+		minting = false;
+		if (!res.ok) return;
+		const body = (await res.json()) as { token: string };
+		freshToken = body.token;
+		newLabel = '';
+		await loadTokens();
+	}
+
+	async function copyToken() {
+		if (!freshToken) return;
+		await navigator.clipboard.writeText(freshToken).catch(() => {});
+		copied = true;
+	}
+
+	async function revoke(id: string) {
+		await fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+		await loadTokens();
+	}
 	let theme = $state<Theme>('auto');
 	let font = $state<ReadingFont>('serif');
 	let panel = $state<HTMLDivElement | null>(null);
@@ -147,6 +202,18 @@
 					</svg>
 					{m.settings_account()}
 				</button>
+				<button
+					type="button"
+					class="nav-item"
+					class:selected={section === 'tokens'}
+					onclick={() => (section = 'tokens')}
+				>
+					<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<circle cx="7.5" cy="15.5" r="4.5" />
+						<path d="M10.7 12.3 21 2m-4 4 3 3" />
+					</svg>
+					{m.settings_tokens()}
+				</button>
 			</nav>
 
 			<div class="content">
@@ -216,7 +283,7 @@
 							{/each}
 						</div>
 					</div>
-				{:else}
+				{:else if section === 'account'}
 					<h2>{m.settings_account()}</h2>
 
 					<div class="identity">
@@ -277,6 +344,59 @@
 					</div>
 
 					<button type="button" class="signout" onclick={signOut}>{m.signout()}</button>
+				{:else if section === 'tokens'}
+					<h2>{m.settings_tokens()}</h2>
+					<p class="hint-text">{m.tokens_hint()}</p>
+
+					<div class="mint">
+						<input
+							class="text-input"
+							type="text"
+							maxlength="64"
+							bind:value={newLabel}
+							placeholder={m.tokens_label_placeholder()}
+							onkeydown={(e) => e.key === 'Enter' && mint()}
+						/>
+						<button type="button" class="mint-btn" disabled={minting} onclick={mint}>
+							{m.tokens_create()}
+						</button>
+					</div>
+
+					{#if freshToken}
+						<div class="fresh">
+							<code class="fresh-token">{freshToken}</code>
+							<button type="button" class="copy" onclick={copyToken}>
+								{copied ? m.tokens_copied() : m.tokens_copy()}
+							</button>
+							<p class="fresh-note">{m.tokens_created_note()}</p>
+						</div>
+					{/if}
+
+					{#if tokensLoaded && tokens.length === 0}
+						<p class="none">{m.tokens_empty()}</p>
+					{:else}
+						<ul class="token-list">
+							{#each tokens as t (t.id)}
+								<li>
+									<span class="tok-main">
+										<span class="tok-label">{t.label}</span>
+										<span class="tok-meta">
+											{new Date(t.createdAt).toLocaleDateString()}
+											· {t.lastUsedAt
+												? `${m.tokens_last_used()} ${new Date(t.lastUsedAt).toLocaleDateString()}`
+												: m.tokens_never_used()}
+											{#if t.expiresAt}
+												· {m.tokens_expires()} {new Date(t.expiresAt).toLocaleDateString()}
+											{/if}
+										</span>
+									</span>
+									<button type="button" class="revoke" onclick={() => revoke(t.id)}>
+										{m.tokens_revoke()}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				{/if}
 			</div>
 		</div>
@@ -405,6 +525,125 @@
 	.row-label {
 		font-size: 13px;
 		color: var(--text-muted);
+	}
+
+	.hint-text {
+		margin: 0 0 14px;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--text-muted);
+		max-width: 56ch;
+	}
+
+	.mint {
+		display: flex;
+		gap: 8px;
+		margin-bottom: 14px;
+	}
+	.mint .text-input {
+		flex: 1;
+	}
+	.mint-btn {
+		flex: none;
+		height: 32px;
+		padding: 0 13px;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: var(--brand);
+		color: #fff;
+		font-family: inherit;
+		font-size: 12.5px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.mint-btn:disabled {
+		opacity: 0.6;
+	}
+
+	.fresh {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 14px;
+		padding: 10px 12px;
+		border: 1px solid var(--brand);
+		border-radius: var(--radius);
+		background: var(--surface);
+	}
+	.fresh-token {
+		flex: 1;
+		min-width: 0;
+		overflow-x: auto;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		white-space: nowrap;
+	}
+	.copy {
+		flex: none;
+		height: 26px;
+		padding: 0 11px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-sm);
+		background: var(--surface);
+		color: var(--text);
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.fresh-note {
+		flex-basis: 100%;
+		margin: 0;
+		font-size: 11.5px;
+		color: var(--text-faint);
+	}
+
+	.none {
+		font-size: 12.5px;
+		color: var(--text-faint);
+		font-style: italic;
+	}
+
+	.token-list {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.token-list li {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 2px;
+		border-bottom: 1px solid var(--border);
+	}
+	.tok-main {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		flex: 1;
+		min-width: 0;
+	}
+	.tok-label {
+		font-size: 13.5px;
+		font-weight: 500;
+	}
+	.tok-meta {
+		font-size: 11.5px;
+		color: var(--text-faint);
+	}
+	.revoke {
+		flex: none;
+		height: 26px;
+		padding: 0 11px;
+		border: 1px solid var(--danger);
+		border-radius: var(--radius-sm);
+		background: var(--danger-wash);
+		color: var(--danger);
+		font-family: inherit;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
 	}
 
 	.section-head {
