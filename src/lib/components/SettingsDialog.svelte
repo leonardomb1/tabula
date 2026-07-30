@@ -100,8 +100,25 @@
 
 	async function copyToken() {
 		if (!freshToken) return;
-		await navigator.clipboard.writeText(freshToken).catch(() => {});
-		copied = true;
+		try {
+			// The async clipboard API only exists on secure origins; plain-http
+			// deployments fall back to the legacy selection path.
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(freshToken);
+			} else {
+				const ta = document.createElement('textarea');
+				ta.value = freshToken;
+				ta.style.position = 'fixed';
+				ta.style.opacity = '0';
+				document.body.appendChild(ta);
+				ta.select();
+				document.execCommand('copy');
+				ta.remove();
+			}
+			copied = true;
+		} catch {
+			// Button stays on "Copy"; the token text itself remains selectable.
+		}
 	}
 
 	async function revoke(id: string) {
