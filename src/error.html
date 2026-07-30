@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="robots" content="noindex" />
+		<title>%sveltekit.status% · Tabula</title>
+		<style>
+			/* Standalone on purpose: this is what renders when the app itself could not,
+			   so it must not depend on app.css, fonts or any script having loaded. */
+			:root {
+				color-scheme: dark light;
+				--bg: #1a1a1d;
+				--surface: #212127;
+				--text: #e9e9ec;
+				--muted: #a2a2ad;
+				--faint: #6d6d79;
+				--border: #3b3b45;
+				--brand: #e63719;
+			}
+			@media (prefers-color-scheme: light) {
+				:root {
+					--bg: #fbfbfa;
+					--surface: #fff;
+					--text: #1f1f23;
+					--muted: #5e5e67;
+					--faint: #8b8b94;
+					--border: #cfcfc9;
+				}
+			}
+			* {
+				box-sizing: border-box;
+			}
+			body {
+				margin: 0;
+				min-height: 100vh;
+				display: grid;
+				place-items: center;
+				padding: 24px;
+				background: var(--bg);
+				color: var(--text);
+				font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+			}
+			main {
+				width: min(420px, 100%);
+				text-align: center;
+			}
+			.status {
+				margin: 0;
+				font-size: 60px;
+				font-weight: 600;
+				line-height: 1;
+				color: var(--border);
+			}
+			h1 {
+				margin: 10px 0 0;
+				font-size: 21px;
+				font-weight: 600;
+			}
+			p.desc {
+				margin: 8px 0 0;
+				font-size: 13.5px;
+				line-height: 1.55;
+				color: var(--muted);
+			}
+			code {
+				display: block;
+				margin-top: 16px;
+				padding: 10px 12px;
+				border: 1px solid var(--border);
+				border-radius: 6px;
+				background: var(--surface);
+				font-family: ui-monospace, Menlo, Consolas, monospace;
+				font-size: 12px;
+				color: var(--muted);
+				text-align: start;
+				overflow-wrap: anywhere;
+			}
+			a {
+				display: inline-flex;
+				align-items: center;
+				height: 32px;
+				margin-top: 22px;
+				padding: 0 14px;
+				border-radius: 6px;
+				background: var(--brand);
+				color: #fff;
+				font-size: 13px;
+				font-weight: 600;
+				text-decoration: none;
+			}
+		</style>
+	</head>
+	<body>
+		<main>
+			<p class="status">%sveltekit.status%</p>
+			<h1>Tabula</h1>
+			<p class="desc">
+				Esta página não pôde ser carregada. / This page could not be loaded.
+			</p>
+			<code>%sveltekit.error.message%</code>
+			<a href="/">Início / Home</a>
+		</main>
+	</body>
+</html>

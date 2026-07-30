@@ -1,0 +1,32 @@
+# Local overlay: build the app images from this checkout instead of pulling them,
+# and republish Postgres on loopback so `bun run dev`, drizzle-kit and psql can
+# reach it. Bound to 127.0.0.1 on purpose — the base file exposes no database port
+# at all, and this must not open one to the network.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+
+services:
+  app1:
+    build:
+      context: .
+      target: runtime
+    image: tabula-local:latest
+    pull_policy: build
+
+  app2:
+    build:
+      context: .
+      target: runtime
+    image: tabula-local:latest
+    pull_policy: build
+
+  migrate:
+    build:
+      context: .
+      target: tools
+    image: tabula-tools-local:latest
+    pull_policy: build
+
+  db:
+    ports:
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432'

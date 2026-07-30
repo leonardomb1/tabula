@@ -1,0 +1,24 @@
+<!doctype html>
+
+<html lang="%paraglide.lang%" dir="%paraglide.dir%">
+	<head>
+		<meta charset="utf-8" />
+
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1"
+		/>
+
+		<script>
+			try {
+				var t = localStorage.getItem('tabula-theme');
+				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+				var f = localStorage.getItem('tabula-font');
+				if (f === 'serif' || f === 'sans' || f === 'mono') document.documentElement.dataset.font = f;
+			} catch (e) {}
+		</script>
+		%sveltekit.head%
+	</head>
+
+	<body data-sveltekit-preload-data="hover"><div style="display: contents">%sveltekit.body%</div></body>
+</html>

@@ -1,0 +1,291 @@
+@import '@fontsource-variable/hanken-grotesk';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/source-serif-4';
+
+:root {
+	--brand: #e63719;
+
+	--bg: #1a1a1d;
+	--bg-rail: #141416;
+	--surface: #212127;
+	--surface-hover: #26262d;
+	--surface-active: #2d2d35;
+	--text: #e9e9ec;
+	--text-muted: #a2a2ad;
+	--text-faint: #6d6d79;
+	--border: #2a2a31;
+	--border-strong: #3b3b45;
+	--danger: #f2b8b5;
+	--danger-wash: #3b1f1d;
+	--mark: #5a4a12;
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px rgb(0 0 0 / 0.35);
+
+	--font-ui: 'Hanken Grotesk Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+	--font-serif-read: 'Source Serif 4 Variable', Georgia, serif;
+	--font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+	--font-read: var(--font-serif-read);
+
+	--rail-width: 264px;
+	--radius: 10px;
+	--radius-sm: 6px;
+
+	color-scheme: dark;
+}
+
+:root[data-font='sans'] {
+	--font-read: var(--font-ui);
+}
+:root[data-font='mono'] {
+	--font-read: var(--font-mono);
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme='dark']) {
+		--bg: #fbfbfa;
+		--bg-rail: #f3f3f1;
+		--surface: #ffffff;
+		--surface-hover: #efefec;
+		--surface-active: #e6e6e2;
+		--text: #1f1f23;
+		--text-muted: #5e5e67;
+		--text-faint: #8b8b94;
+		--border: #e5e5e0;
+		--border-strong: #cfcfc9;
+		--danger: #b3261e;
+		--danger-wash: #fdeceb;
+		--mark: #fbe7a1;
+		--shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px rgb(0 0 0 / 0.1);
+
+		color-scheme: light;
+	}
+}
+
+:root[data-theme='light'] {
+	--bg: #fbfbfa;
+	--bg-rail: #f3f3f1;
+	--surface: #ffffff;
+	--surface-hover: #efefec;
+	--surface-active: #e6e6e2;
+	--text: #1f1f23;
+	--text-muted: #5e5e67;
+	--text-faint: #8b8b94;
+	--border: #e5e5e0;
+	--border-strong: #cfcfc9;
+	--danger: #b3261e;
+	--danger-wash: #fdeceb;
+	--mark: #fbe7a1;
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 12px 32px rgb(0 0 0 / 0.1);
+
+	color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-ui);
+	font-size: 14px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+}
+
+:where(a) {
+	color: inherit;
+	text-decoration: none;
+}
+
+:where(button, input, select, textarea) {
+	font: inherit;
+	color: inherit;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+	outline: 2px solid var(--brand);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+
+:where(input, select, textarea):focus-visible {
+	outline: none;
+	border-color: var(--brand);
+	box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 22%, transparent);
+}
+
+:where(mark) {
+	background: var(--mark);
+	color: inherit;
+	border-radius: 2px;
+}
+
+@supports (appearance: base-select) {
+	:where(select),
+	:where(select)::picker(select) {
+		appearance: base-select;
+	}
+
+	:where(select) {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		justify-content: space-between;
+		text-align: start;
+		cursor: pointer;
+	}
+
+	:where(select)::picker-icon {
+		flex: none;
+		content: '';
+		width: 12px;
+		height: 12px;
+		color: var(--text-faint);
+		background: currentColor;
+		mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9.5 6 6 6-6'/%3E%3C/svg%3E")
+			center / 12px 12px no-repeat;
+		transition: rotate 160ms cubic-bezier(0.2, 0.8, 0.3, 1), color 120ms ease;
+	}
+	:where(select):hover::picker-icon {
+		color: var(--text-muted);
+	}
+	:where(select):open::picker-icon {
+		rotate: 180deg;
+	}
+
+	:where(select)::picker(select) {
+		min-width: anchor-size(width);
+		max-height: 16rem;
+		padding: 5px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface);
+		box-shadow: var(--shadow);
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		opacity: 0;
+		translate: 0 -4px;
+		scale: 0.98;
+		transform-origin: top center;
+		transition:
+			opacity 130ms ease,
+			translate 130ms cubic-bezier(0.2, 0.8, 0.3, 1),
+			scale 130ms cubic-bezier(0.2, 0.8, 0.3, 1),
+			display 130ms allow-discrete,
+			overlay 130ms allow-discrete;
+	}
+	:where(select):open::picker(select) {
+		opacity: 1;
+		translate: none;
+		scale: 1;
+	}
+	@starting-style {
+		:where(select):open::picker(select) {
+			opacity: 0;
+			translate: 0 -4px;
+			scale: 0.98;
+		}
+	}
+
+	:where(select) option {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 9px;
+		border-radius: var(--radius-sm);
+		background: none;
+		color: var(--text-muted);
+		font-size: 13px;
+		line-height: 1.35;
+		cursor: pointer;
+		transition: background-color 90ms ease, color 90ms ease;
+	}
+	:where(select) option:hover,
+	:where(select) option:focus,
+	:where(select) option:active {
+		background: var(--surface-hover);
+		color: var(--text);
+		outline: none;
+	}
+	:where(select) option:checked {
+		color: var(--text);
+	}
+
+	:where(select) option::checkmark {
+		order: 1;
+		margin-inline-start: auto;
+		color: var(--brand);
+		font-size: 11px;
+	}
+
+	:where(select) option:disabled {
+		color: var(--text-faint);
+		cursor: default;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		:where(select)::picker(select),
+		:where(select)::picker-icon {
+			transition-duration: 0s;
+		}
+	}
+}
+
+@keyframes page-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+}
+
+@keyframes page-out {
+	to {
+		opacity: 0;
+	}
+}
+
+::view-transition-old(page-content) {
+	animation: page-out 100ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+::view-transition-new(page-content) {
+	animation: page-in 220ms cubic-bezier(0, 0, 0.2, 1) 40ms both;
+}
+
+::view-transition-group(rail),
+::view-transition-old(rail),
+::view-transition-new(rail) {
+	animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+	background: var(--border-strong);
+	border: 3px solid transparent;
+	background-clip: content-box;
+	border-radius: 6px;
+}

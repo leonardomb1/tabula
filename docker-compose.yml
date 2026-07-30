@@ -1,0 +1,193 @@
+# Caddy in front of two app instances, pgbouncer in front of Postgres/pgvector.
+#
+#   docker compose pull && docker compose up -d      # deploy the published image
+#
+# Migrations run automatically on every `up`: the one-shot migrate service applies
+# pending drizzle/*.sql and the app instances wait for it to exit successfully.
+#
+# Nothing is published to the host except Caddy's 80/443. Postgres has no port
+# mapping; the local overlay adds one on loopback, along with locally built images:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# Object storage is chosen by STORAGE in .env — local | s3 | azure. See .env.example
+# for the keys each backend needs.
+#
+# The app reaches Postgres through pgbouncer; migrations bypass it, because DDL and
+# advisory locks need a connection that is not reassigned between statements.
+#
+# `name` is pinned to the directory-derived default this project already used, so
+# the existing refactor_tabula-db-data volume keeps being found. Renaming it means
+# migrating that volume by hand.
+name: tabula
+
+x-app: &app
+  # Published by .github/workflows/ci.yml. `pull_policy: always` is what makes
+  # `docker compose up -d` pick up a newly pushed `latest`; set TABULA_PULL_POLICY
+  # to `missing` when running an image you built locally or when offline.
+  image: ${TABULA_IMAGE:-ghcr.io/leonardomb1/tabula}:${TABULA_TAG:-latest}
+  pull_policy: ${TABULA_PULL_POLICY:-always}
+  restart: unless-stopped
+  environment:
+    NODE_ENV: production
+    PORT: '3000'
+    HOST: 0.0.0.0
+    # adapter-node builds absolute URLs (redirects, form actions) from ORIGIN, and
+    # rejects form posts whose Origin header disagrees — it must match the scheme
+    # and host the browser actually used, i.e. what Caddy serves.
+    ORIGIN: ${ORIGIN}
+    ADDRESS_HEADER: X-Forwarded-For
+    # Only consulted if ORIGIN is unset; kept so clearing ORIGIN still yields
+    # correct URLs behind the proxy rather than localhost ones.
+    PROTOCOL_HEADER: X-Forwarded-Proto
+    HOST_HEADER: X-Forwarded-Host
+    BODY_SIZE_LIMIT: ${BODY_SIZE_LIMIT:-33554432}
+
+    DATABASE_URL: postgres://${POSTGRES_USER:-tabula}:${POSTGRES_PASSWORD:-tabula}@pgbouncer:6432/${POSTGRES_DB:-tabula}
+    PGBOUNCER: 'true'
+
+    # Binaries and the render cache. `local` keeps them on the shared content
+    # volume below; `s3` and `azure` are configured entirely from .env, so the same
+    # compose file serves AWS/R2/MinIO and Azure Blob/ADLS Gen2 without edits.
+    # Neither remote backend creates its bucket or container — provision that first.
+    STORAGE: ${STORAGE:-local}
+    # Fixed, not inherited: .env's value is a repo-relative path for `bun run dev`,
+    # while in the container this must be where the volume is actually mounted.
+    STORAGE_LOCAL_PATH: /app/content
+
+    S3_BUCKET: ${S3_BUCKET:-}
+    S3_REGION: ${S3_REGION:-}
+    S3_ENDPOINT: ${S3_ENDPOINT:-}
+    S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+    S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+    # Unset lets the driver decide: path style turns on whenever an endpoint is set.
+    S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
+    S3_PREFIX: ${S3_PREFIX:-}
+
+    # Azure Blob, and ADLS Gen2 accounts through their blob endpoint. Authenticate
+    # with a connection string, or with account name + key.
+    AZURE_STORAGE_CONTAINER: ${AZURE_STORAGE_CONTAINER:-}
+    AZURE_STORAGE_CONNECTION_STRING: ${AZURE_STORAGE_CONNECTION_STRING:-}
+    AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT:-}
+    AZURE_STORAGE_KEY: ${AZURE_STORAGE_KEY:-}
+    AZURE_STORAGE_ENDPOINT: ${AZURE_STORAGE_ENDPOINT:-}
+    AZURE_STORAGE_PREFIX: ${AZURE_STORAGE_PREFIX:-}
+
+    SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+    SESSION_HOURS: ${SESSION_HOURS:-8}
+    COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    KAUTH_URL: ${KAUTH_URL:-}
+    KAUTH_TOKEN: ${KAUTH_TOKEN:-}
+    PLATFORM_ADMIN_GROUPS: ${PLATFORM_ADMIN_GROUPS:-}
+    BRAND_NAME: ${BRAND_NAME:-}
+    BRAND_COMPANY: ${BRAND_COMPANY:-}
+    BRAND_COLOR: ${BRAND_COLOR:-}
+  depends_on:
+    pgbouncer:
+      condition: service_started
+    migrate:
+      condition: service_completed_successfully
+  # Shared by both instances, and only used when STORAGE=local. Safe to share: the
+  # render cache is content-addressed and attachment keys are unique.
+  volumes:
+    - tabula-content:/app/content
+  expose:
+    - '3000'
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: tabula-caddy
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+      # Point at Let's Encrypt staging while testing to avoid rate limits.
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
+    ports:
+      # 80 and 443 must be the real host ports: the ACME HTTP-01 challenge is
+      # answered on 80, and remapping it makes issuance fail.
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+      - '${HTTPS_PORT:-443}:443/udp'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app1
+      - app2
+
+  app1:
+    <<: *app
+    container_name: tabula-app1
+
+  app2:
+    <<: *app
+    container_name: tabula-app2
+
+  # One-shot schema apply, straight to Postgres, re-run by every `up`. Uses the
+  # published tools image, so a host that only pulls never has to build anything.
+  # Exits 0 immediately when already up to date; the apps gate on that exit.
+  migrate:
+    image: ${TABULA_TOOLS_IMAGE:-ghcr.io/leonardomb1/tabula-tools}:${TABULA_TAG:-latest}
+    pull_policy: ${TABULA_PULL_POLICY:-always}
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-tabula}:${POSTGRES_PASSWORD:-tabula}@db:5432/${POSTGRES_DB:-tabula}
+    command: ['bun', 'run', 'db:migrate']
+    depends_on:
+      db:
+        condition: service_healthy
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: tabula-pgbouncer
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_PORT: '5432'
+      DB_USER: ${POSTGRES_USER:-tabula}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-tabula}
+      DB_NAME: ${POSTGRES_DB:-tabula}
+      # The image defaults to 5432; 6432 is pgbouncer's convention and keeps
+      # "pooled" visibly distinct from "direct" in every connection string.
+      LISTEN_PORT: '6432'
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: '400'
+      DEFAULT_POOL_SIZE: '25'
+      # The app disables client-side prepared statements (PGBOUNCER=true), so the
+      # pooler has none to track.
+      MAX_PREPARED_STATEMENTS: '0'
+      ADMIN_USERS: ${POSTGRES_USER:-tabula}
+    expose:
+      - '6432'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: pgvector/pgvector:pg17
+    container_name: tabula-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tabula}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tabula}
+      POSTGRES_DB: ${POSTGRES_DB:-tabula}
+    # No published port: Postgres is reachable only over the compose network, by
+    # pgbouncer and the migrate job. The local overlay republishes it on loopback
+    # for development.
+    volumes:
+      - tabula-db-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-tabula} -d ${POSTGRES_DB:-tabula}']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  tabula-db-data:
+  tabula-content:
+  caddy-data:
+  caddy-config:

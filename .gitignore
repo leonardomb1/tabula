@@ -1,0 +1,72 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+/build/
+/.svelte-kit/
+.output/
+.vercel/
+.netlify/
+.wrangler/
+/dist/
+
+# Generated code — paraglide rewrites this from messages/ on every build
+/src/lib/paraglide/
+/project.inlang/cache/
+
+# Runtime data: branding assets are dropped in by the operator and the typst
+# render cache is derived, so neither belongs in the repository.
+/content/
+!/content/.gitkeep
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Deploy state (Caddy certificates, MinIO and Postgres data if bind-mounted)
+/deploy/data/
+/deploy/caddy-data/
+/deploy/caddy-config/
+
+# Logs and coverage
+*.log
+npm-debug.log*
+yarn-error.log*
+bun-debug.log*
+/coverage/
+.nyc_output/
+
+# Caches
+.cache/
+.temp/
+.tmp/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Agent-local settings (CLAUDE.md itself is checked in)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini

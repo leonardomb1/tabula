@@ -1,0 +1,58 @@
+# Everything the build does not need. Keeping this tight matters twice over: it
+# shrinks the context and it stops host-only artefacts (a linux/glibc node_modules
+# from another machine, a real .env) from leaking into the image.
+
+# Installed and generated locally — the image installs and builds its own
+node_modules/
+/build/
+/.svelte-kit/
+/src/lib/paraglide/
+/project.inlang/cache/
+.output/
+/dist/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Copy-paste examples, not consumed by the app
+/typst/
+
+# Runtime data
+/content/
+/deploy/data/
+/deploy/caddy-data/
+/deploy/caddy-config/
+
+# VCS and agent files
+.git/
+.gitignore
+.gitattributes
+.github/
+.claude/
+.mcp.json
+CLAUDE.md
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Editors, logs, caches
+.vscode/
+.idea/
+*.log
+*.swp
+*~
+.cache/
+.tmp/
+*.tsbuildinfo
+.eslintcache
+.DS_Store
+Thumbs.db
+
+# Docs
+README.md
+*.md
+!messages/*.md
