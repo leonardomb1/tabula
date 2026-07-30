@@ -223,12 +223,76 @@ export function buildMcpServer(access: Access): McpServer {
 		}
 	);
 
+	async function renderToResult(args: {
+		workspaceId: string;
+		content: string;
+		wrapper: string | undefined;
+		templateSlug: string | null;
+		title?: string;
+		options?: Record<string, string>;
+		tags?: string[];
+		inline?: boolean;
+	}): Promise<ToolResult> {
+		const heading = (args.title ?? '').trim() || 'Documento';
+		const inputs = subjectInputs(
+			{
+				title: heading,
+				slug: slugify(heading) || 'documento',
+				tags: args.tags ?? [],
+				workspaceId: args.workspaceId,
+				date: new Date(),
+				author: await formalNameFor(access.principal.username)
+			},
+			args.options ?? {}
+		);
+
+		let rendered: { pdf: Uint8Array; key: string };
+		try {
+			rendered = await renderMarkdownToPdfKeyed(args.content, {
+				workspaceId: args.workspaceId,
+				resolveRefs: resolveDocRefs,
+				wrapper: args.wrapper,
+				inputs
+			});
+		} catch (err) {
+			if (err instanceof TypstCompileError) return fail(`Template failed to compile: ${err.message}`);
+			throw err;
+		}
+
+		const filename = `${inputs.slug}.pdf`;
+
+		if (args.inline) {
+			return {
+				content: [
+					{
+						type: 'resource',
+						resource: {
+							uri: `tabula://render/${filename}`,
+							mimeType: 'application/pdf',
+							blob: Buffer.from(rendered.pdf).toString('base64')
+						}
+					}
+				]
+			} as unknown as ToolResult;
+		}
+
+		const { token, expiresAt } = signArtifact(rendered.key, filename);
+		return ok({
+			url: `${origin()}/api/artifact/${token}`,
+			filename,
+			mimeType: 'application/pdf',
+			bytes: rendered.pdf.byteLength,
+			expiresAt: expiresAt.toISOString(),
+			template: args.templateSlug
+		});
+	}
+
 	server.registerTool(
 		'render_pdf',
 		{
 			title: 'Render a PDF',
 			description:
-				'Compile markdown into a PDF with one of the workspace templates. Nothing is stored as a document: the result is a short-lived signed link the caller can download, or base64 bytes when inline is true. Use list_templates first to pick a template and learn its options.',
+				'Compile markdown into a PDF with one of the workspace templates. Nothing is stored as a document: the result is a short-lived signed link the caller can download, or base64 bytes when inline is true. Use list_templates first to pick a template and learn its options. Stored templates are fixed layouts (A4 portrait, corporate chrome) — for any other page format, size, orientation, or free-form composition you MUST use render_pdf_custom with an ephemeral template instead.',
 			inputSchema: {
 				workspaceId: z.string().describe('Workspace whose templates and branding apply'),
 				content: z.string().min(1).describe('Document body in markdown; ```typst blocks are allowed'),
@@ -251,57 +315,55 @@ export function buildMcpServer(access: Access): McpServer {
 			const tpl = template ? await getTemplate(workspaceId, template) : null;
 			if (template && !tpl) return fail(`Unknown template "${template}" in ${workspaceId}`);
 
-			const heading = (title ?? '').trim() || 'Documento';
-			const inputs = subjectInputs(
-				{
-					title: heading,
-					slug: slugify(heading) || 'documento',
-					tags: tags ?? [],
-					workspaceId,
-					date: new Date(),
-					author: await formalNameFor(access.principal.username)
-				},
-				options ?? {}
-			);
+			return renderToResult({
+				workspaceId,
+				content,
+				wrapper: tpl?.source,
+				templateSlug: tpl?.slug ?? null,
+				title,
+				options,
+				tags,
+				inline
+			});
+		}
+	);
 
-			let rendered: { pdf: Uint8Array; key: string };
-			try {
-				rendered = await renderMarkdownToPdfKeyed(content, {
-					workspaceId,
-					resolveRefs: resolveDocRefs,
-					wrapper: tpl?.source,
-					inputs
-				});
-			} catch (err) {
-				if (err instanceof TypstCompileError) return fail(`Template failed to compile: ${err.message}`);
-				throw err;
+	server.registerTool(
+		'render_pdf_custom',
+		{
+			title: 'Render a PDF with an ephemeral template',
+			description:
+				'Compile markdown into a PDF using a one-off Typst template supplied in this call — nothing is stored, so this is how you COMPOSE layouts render_pdf cannot produce. Any different page format (A5, landscape, slides, labels, custom margins), custom typography, or free-form design REQUIRES an ephemeral template like this; the stored workspace templates are fixed and cannot be altered per call. Contract: templateSource is a complete Typst document that renders the markdown itself, typically ending in `#import "@preview/cmarker:0.1.6"` … `#cmarker.render(read("/doc.md"), raw-typst: true, scope: (image: (path, alt: none) => image(path, alt: alt)))` — content arrives at /doc.md, the image scope handler is required when the markdown references attachments, and metadata (title, author, date, tags, plus every key from options as fm-style strings) arrives via sys.inputs with defaults, e.g. `#let title = sys.inputs.at("title", default: "")`. ```typst blocks inside the content still work. Result is a short-lived signed link, or base64 bytes when inline is true.',
+			inputSchema: {
+				workspaceId: z.string().describe('Workspace whose branding and attachments apply'),
+				content: z.string().min(1).describe('Document body in markdown; ```typst blocks are allowed'),
+				templateSource: z
+					.string()
+					.min(1)
+					.describe('Complete Typst template source; must render /doc.md itself (see tool description)'),
+				title: z.string().optional().describe('Reaches the template as sys.inputs title'),
+				options: z
+					.record(z.string())
+					.optional()
+					.describe('Extra sys.inputs values the template may read'),
+				tags: z.array(z.string()).optional(),
+				inline: z
+					.boolean()
+					.optional()
+					.describe('Return base64 bytes instead of a link. Large, so prefer the link.')
 			}
-
-			const filename = `${inputs.slug}.pdf`;
-
-			if (inline) {
-				return {
-					content: [
-						{
-							type: 'resource',
-							resource: {
-								uri: `tabula://render/${filename}`,
-								mimeType: 'application/pdf',
-								blob: Buffer.from(rendered.pdf).toString('base64')
-							}
-						}
-					]
-				} as unknown as ToolResult;
-			}
-
-			const { token, expiresAt } = signArtifact(rendered.key, filename);
-			return ok({
-				url: `${origin()}/api/artifact/${token}`,
-				filename,
-				mimeType: 'application/pdf',
-				bytes: rendered.pdf.byteLength,
-				expiresAt: expiresAt.toISOString(),
-				template: tpl?.slug ?? null
+		},
+		async ({ workspaceId, content, templateSource, title, options, tags, inline }) => {
+			if (!access.can(workspaceId)) return fail(`No access to workspace ${workspaceId}`);
+			return renderToResult({
+				workspaceId,
+				content,
+				wrapper: templateSource,
+				templateSlug: null,
+				title,
+				options,
+				tags,
+				inline
 			});
 		}
 	);
