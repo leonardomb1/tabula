@@ -2,8 +2,16 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Access } from '../access';
 import { searchDocs } from '../search';
-import { getDoc, getDocBySlug, listDocs, getBacklinks, resolveDocRefs } from '../docs';
-import { getPublishedDoc, openReview, requestPublish } from '../publication';
+import {
+	getDoc,
+	getDocBySlug,
+	listDocs,
+	getBacklinks,
+	resolveDocRefs,
+	createDoc,
+	updateDoc
+} from '../docs';
+import { getPublishedDoc, openPublishRequest, requestPublish, onDocUpdated } from '../publication';
 import { listWorkspaces } from '../workspaces';
 import { getTemplate, listTemplates, parseTemplateMeta, subjectInputs } from '../templates';
 import { renderMarkdownToPdfKeyed } from '../markdown/pdf';
@@ -34,7 +42,7 @@ const fail = (message: string): ToolResult => ({
 export function buildMcpServer(access: Access): McpServer {
 	const server = new McpServer(
 		{ name: 'tabula', version: '0.1.0' },
-		{ capabilities: { tools: {} }, instructions: 'Search and read tabula documentation.' }
+		{ capabilities: { tools: {} }, instructions: 'Search, read, and write tabula documentation.' }
 	);
 
 	server.registerTool(
@@ -122,7 +130,7 @@ export function buildMcpServer(access: Access): McpServer {
 					: null;
 			if (!doc) return fail('Document not found (provide id, or workspaceId + slug)');
 			if (!doc.isPublic && !access.can(doc.workspaceId)) return fail('Access denied');
-			const pending = await openReview(doc.id, 'publish');
+			const pending = await openPublishRequest(doc.id);
 			return ok({
 				id: doc.id,
 				workspaceId: doc.workspaceId,
@@ -136,6 +144,69 @@ export function buildMcpServer(access: Access): McpServer {
 				publishedVersionNo: doc.publishedVersionNo,
 				publicationPending: !!pending,
 				source: doc.source
+			});
+		}
+	);
+
+	server.registerTool(
+		'create_doc',
+		{
+			title: 'Create a document',
+			description:
+				'Create a new document in a workspace (requires editor access). New documents are private — use request_publish to publish. Returns the new id and slug.',
+			inputSchema: {
+				workspaceId: z.string(),
+				title: z.string().min(1),
+				source: z
+					.string()
+					.describe('Document body: markdown (```typst blocks allowed) or typst source'),
+				mode: z.enum(['markdown', 'typst']).optional().describe("Defaults to 'markdown'"),
+				slug: z.string().optional().describe('URL slug; derived from the title when omitted'),
+				tags: z.array(z.string()).optional()
+			}
+		},
+		async ({ workspaceId, title, source, mode, slug, tags }) => {
+			if (!access.can(workspaceId, 'editor')) return fail(`Requires editor access to ${workspaceId}`);
+			const doc = await createDoc({
+				workspaceId,
+				title,
+				mode: mode ?? 'markdown',
+				source,
+				slug,
+				tags,
+				actor: access.principal.username
+			});
+			await onDocUpdated(doc);
+			return ok({ id: doc.id, workspaceId: doc.workspaceId, slug: doc.slug, title: doc.title });
+		}
+	);
+
+	server.registerTool(
+		'update_doc',
+		{
+			title: 'Update a document',
+			description:
+				"Update an existing document's content or metadata by id (requires editor access). Each save records a new version. Publication state is unchanged — use request_publish to (re)publish.",
+			inputSchema: {
+				id: z.string(),
+				title: z.string().optional(),
+				source: z.string().optional(),
+				mode: z.enum(['markdown', 'typst']).optional(),
+				tags: z.array(z.string()).optional()
+			}
+		},
+		async ({ id, title, source, mode, tags }) => {
+			const existing = await getDoc(id);
+			if (!existing) return fail('Document not found');
+			if (!access.can(existing.workspaceId, 'editor')) return fail('Requires editor access');
+			const updated = await updateDoc(id, { title, source, mode, tags }, access.principal.username);
+			await onDocUpdated(updated);
+			return ok({
+				id: updated.id,
+				workspaceId: updated.workspaceId,
+				slug: updated.slug,
+				title: updated.title,
+				updatedAt: updated.updatedAt
 			});
 		}
 	);

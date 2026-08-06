@@ -10,7 +10,13 @@ import {
 	removeGateRule,
 	unblockUser
 } from '$lib/server/gate';
-import { listOpenReviews, listPublishedDocs, unpublish } from '$lib/server/publication';
+import {
+	approvePublish,
+	listPendingPublications,
+	listPublishedDocs,
+	rejectPublish,
+	unpublish
+} from '$lib/server/publication';
 import { viewCounts } from '$lib/server/views';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -22,11 +28,11 @@ function requireCentral(locals: App.Locals) {
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const { user } = requireCentral(locals);
-	const [rules, users, published, reviews] = await Promise.all([
+	const [rules, users, published, pending] = await Promise.all([
 		listGateRules(),
 		listKnownUsers(),
 		listPublishedDocs(),
-		listOpenReviews()
+		listPendingPublications()
 	]);
 	const views = await viewCounts(published.map((d) => d.id));
 	return {
@@ -42,16 +48,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 			updatedAt: d.updatedAt.toISOString(),
 			views: views.get(d.id) ?? 0
 		})),
-		reviews: reviews.map((r) => ({
-			id: r.id,
-			kind: r.kind,
+		pending: pending.map((r) => ({
+			docId: r.docId,
 			docTitle: r.docTitle,
 			docSlug: r.docSlug,
 			workspaceId: r.workspaceId,
 			requestedBy: r.requestedBy,
-			note: r.note,
-			quorum: r.quorum,
-			approvals: r.approvals,
 			createdAt: r.createdAt.toISOString()
 		}))
 	};
@@ -111,6 +113,22 @@ export const actions: Actions = {
 		const id = String((await request.formData()).get('doc') ?? '');
 		if (!id) return fail(400, { error: 'bad_doc' });
 		await unpublish(id);
+		return { ok: true };
+	},
+
+	approve: async ({ request, locals }) => {
+		const { access } = requireCentral(locals);
+		const docId = String((await request.formData()).get('doc') ?? '');
+		if (!docId) return fail(400, { error: 'bad_doc' });
+		if ((await approvePublish(docId, access)) === 'forbidden') return fail(403, { error: 'forbidden' });
+		return { ok: true };
+	},
+
+	reject: async ({ request, locals }) => {
+		const { access } = requireCentral(locals);
+		const docId = String((await request.formData()).get('doc') ?? '');
+		if (!docId) return fail(400, { error: 'bad_doc' });
+		if ((await rejectPublish(docId, access)) === 'forbidden') return fail(403, { error: 'forbidden' });
 		return { ok: true };
 	},
 

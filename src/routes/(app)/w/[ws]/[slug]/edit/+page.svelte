@@ -27,8 +27,7 @@
 		title: form?.title ?? data.doc.title,
 		tags: form?.tags ?? data.doc.tags,
 		mode: form?.mode ?? data.doc.mode,
-		source: form?.source ?? data.doc.source,
-		isPublic: form?.isPublic ?? data.doc.isPublic
+		source: form?.source ?? data.doc.source
 	}}
 >
 	<a class="link" href={historyHref(wsId, data.doc.slug)}>

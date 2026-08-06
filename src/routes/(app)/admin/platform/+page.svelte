@@ -97,14 +97,22 @@
 			</ul>
 		{/if}
 
-		{#if data.reviews.length > 0}
-			<h2 class="sub-h">{m.admin_reviews_title()}</h2>
+		{#if data.pending.length > 0}
+			<h2 class="sub-h">{m.admin_pending_title()}</h2>
 			<ul class="rules">
-				{#each data.reviews as r (r.id)}
+				{#each data.pending as r (r.docId)}
 					<li>
 						<a class="doc-link" href={`/w/${encodeURIComponent(r.workspaceId)}/${encodeURIComponent(r.docSlug)}`}>{r.docTitle}</a>
 						<code class="rule-value">{r.workspaceId}</code>
-						<span class="views">{r.kind}{r.kind === 'publish' ? ` · ${r.approvals}/${r.quorum}` : ''} · {r.requestedBy}</span>
+						<span class="views">{r.requestedBy}</span>
+						<form method="POST" action="?/approve" use:enhance>
+							<input type="hidden" name="doc" value={r.docId} />
+							<button type="submit" class="secondary">{m.publish_approve()}</button>
+						</form>
+						<form method="POST" action="?/reject" use:enhance>
+							<input type="hidden" name="doc" value={r.docId} />
+							<button type="submit" class="secondary">{m.publish_reject()}</button>
+						</form>
 					</li>
 				{/each}
 			</ul>

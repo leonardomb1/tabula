@@ -10,7 +10,6 @@
 		tags: string[];
 		mode: 'markdown' | 'typst';
 		source: string;
-		isPublic: boolean;
 	}
 
 	let {
@@ -36,7 +35,6 @@
 	let tags = $state(seed.tags.join(', '));
 	let mode = $state<'markdown' | 'typst'>(seed.mode);
 	let source = $state(seed.source);
-	let isPublic = $state(seed.isPublic);
 
 	let showPreview = $state(true);
 	let previewHtml = $state('');
@@ -157,10 +155,6 @@
 			<span class="legacy" title={m.editor_legacy_typst()}>{m.editor_legacy_typst()}</span>
 		{/if}
 
-		<label class="toggle">
-			<input type="checkbox" name="isPublic" bind:checked={isPublic} />
-			<span>{m.editor_public_label()}</span>
-		</label>
 
 		<button
 			type="button"
@@ -338,31 +332,6 @@
 		font-size: 12px;
 		color: var(--text-faint);
 		white-space: nowrap;
-	}
-
-	.toggle {
-		display: inline-flex;
-		align-items: center;
-		gap: 7px;
-		height: 30px;
-		padding: 0 10px;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		font-size: 12.5px;
-		color: var(--text-muted);
-		cursor: pointer;
-		white-space: nowrap;
-	}
-	.toggle:hover {
-		border-color: var(--border-strong);
-		color: var(--text);
-	}
-	.toggle input {
-		width: 14px;
-		height: 14px;
-		margin: 0;
-		accent-color: var(--brand);
-		cursor: pointer;
 	}
 
 	.toggle-btn {

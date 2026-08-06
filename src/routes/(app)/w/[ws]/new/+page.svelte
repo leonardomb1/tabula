@@ -21,7 +21,6 @@
 		title: form?.title ?? '',
 		tags: form?.tags ?? [],
 		mode: form?.mode ?? 'markdown',
-		source: form?.source ?? '',
-		isPublic: form?.isPublic ?? false
+		source: form?.source ?? ''
 	}}
 />

@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { requireUser } from '$lib/server/apiGuards';
 import { ATTR, BINDABLE_ATTRIBUTES, ROLES, type Role } from '$lib/server/access';
-import { quorumDeadlocks, sanitizePolicy } from '$lib/policy';
+import { sanitizePolicy } from '$lib/policy';
 import {
 	createWorkspace,
 	deleteWorkspace,
@@ -168,11 +168,6 @@ export const actions: Actions = {
 		}
 
 		const candidate = sanitizePolicy(parsed);
-		const maintainers = (await listBindings(ws))
-			.filter((b) => b.role === 'maintainer')
-			.map((b) => ({ attribute: b.attribute, value: b.value }));
-		if (quorumDeadlocks(candidate, maintainers)) return fail(400, { error: 'quorum' });
-
 		await updatePolicy(ws, candidate);
 		return { saved: true };
 	}

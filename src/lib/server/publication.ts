@@ -1,9 +1,11 @@
 /**
- * The publication engine: turns the policy spec (allowPublic, makePublic,
- * approvePublic, quorum, approvers, maintainerBypass, selfApprove, review.mode)
- * into behavior. The wiki serves the approved snapshot (publishedVersionNo),
- * never the live source, so under review.mode 'all' edits stay internal until
- * re-approved. Unpublishing is never gated, matching the spec.
+ * The publication engine. The wiki serves the approved snapshot
+ * (publishedVersionNo). Publishing model:
+ *   - maintainers publish/unpublish directly;
+ *   - an editor with makePublic publishes directly, unless the workspace requires
+ *     approval (approvePublic) — then a single maintainer approves or rejects;
+ *   - unpublishing is never gated;
+ *   - edits to a published doc update its snapshot immediately (no re-review).
  */
 
 import { and, desc, eq, inArray, isNull, isNotNull, notInArray, sql } from 'drizzle-orm';
@@ -11,7 +13,6 @@ import { db } from './db';
 import {
 	attachments,
 	docReviews,
-	docReviewVotes,
 	docVersions,
 	docs,
 	workspaces,
@@ -21,9 +22,10 @@ import {
 import { getPolicy } from './workspaces';
 import { slugify } from './ids';
 import type { Access } from './access';
-import { canMakePublic, isApprover, type WorkspacePolicy } from '$lib/policy';
+import { canMakePublic, needsPublishApproval } from '$lib/policy';
 
 export type PublishOutcome = 'published' | 'pending' | 'forbidden';
+export type ApprovalOutcome = 'approved' | 'rejected' | 'forbidden' | 'none';
 
 async function latestVersionNo(docId: string): Promise<number> {
 	const [row] = await db
@@ -51,7 +53,6 @@ const ATTACHMENT_REF = /\/api\/attachments\/([a-z0-9]+)/g;
 /**
  * Recompute which of a workspace's attachments the wiki exposes: exactly those
  * referenced by the source each published doc actually serves (its snapshot).
- * Keeps the anonymous serving path a flag read instead of a LIKE scan.
  */
 async function syncAttachmentExposure(workspaceId: string): Promise<void> {
 	const published = await db
@@ -100,166 +101,121 @@ async function publishNow(doc: Doc): Promise<void> {
 	await syncAttachmentExposure(doc.workspaceId);
 }
 
-/** Never review-gated; publicSlug is kept so a re-publish restores old links. */
-export async function unpublish(docId: string): Promise<void> {
-	const [doc] = await db.select().from(docs).where(eq(docs.id, docId)).limit(1);
-	await db.update(docs).set({ isPublic: false, publishedVersionNo: null }).where(eq(docs.id, docId));
+async function resolveRequest(
+	docId: string,
+	state: 'approved' | 'rejected',
+	by?: string
+): Promise<void> {
 	await db
 		.update(docReviews)
-		.set({ state: 'rejected', resolvedAt: new Date() })
-		.where(and(eq(docReviews.docId, docId), eq(docReviews.kind, 'publish'), eq(docReviews.state, 'open')));
-	if (doc) await syncAttachmentExposure(doc.workspaceId);
+		.set({ state, resolvedBy: by ?? null, resolvedAt: new Date() })
+		.where(
+			and(eq(docReviews.docId, docId), eq(docReviews.kind, 'publish'), eq(docReviews.state, 'open'))
+		);
 }
 
-export async function openReview(docId: string, kind: string): Promise<DocReview | null> {
+/** The open publish request for a doc, if any. */
+export async function openPublishRequest(docId: string): Promise<DocReview | null> {
 	const [row] = await db
 		.select()
 		.from(docReviews)
-		.where(and(eq(docReviews.docId, docId), eq(docReviews.kind, kind), eq(docReviews.state, 'open')))
+		.where(
+			and(eq(docReviews.docId, docId), eq(docReviews.kind, 'publish'), eq(docReviews.state, 'open'))
+		)
 		.orderBy(desc(docReviews.id))
 		.limit(1);
 	return row ?? null;
 }
 
-function needsApproval(policy: WorkspacePolicy, access: Access, workspaceId: string): boolean {
-	if (!policy.review.approvePublic) return false;
-	if (policy.review.maintainerBypass && access.can(workspaceId, 'maintainer')) return false;
-	return true;
+/** Never gated. Keeps publicSlug so a re-publish restores old links. */
+export async function unpublish(docId: string): Promise<void> {
+	const [doc] = await db.select().from(docs).where(eq(docs.id, docId)).limit(1);
+	await db.update(docs).set({ isPublic: false, publishedVersionNo: null }).where(eq(docs.id, docId));
+	await resolveRequest(docId, 'rejected');
+	if (doc) await syncAttachmentExposure(doc.workspaceId);
 }
 
-/**
- * Publish, or open a review when policy demands one. Also used to push a newer
- * version of an already-public doc onto the wiki under review.mode 'all'.
- */
+/** Publish, or open a pending request when the publisher needs approval. */
 export async function requestPublish(doc: Doc, access: Access): Promise<PublishOutcome> {
 	const policy = await getPolicy(doc.workspaceId);
 	const role = access.role(doc.workspaceId);
 	if (!canMakePublic(policy, role)) return 'forbidden';
 
-	if (!needsApproval(policy, access, doc.workspaceId)) {
+	if (!needsPublishApproval(policy, role)) {
 		await publishNow(doc);
 		return 'published';
 	}
 
-	const existing = await openReview(doc.id, 'publish');
-	const versionNo = await latestVersionNo(doc.id);
-	if (existing) {
-		await db.update(docReviews).set({ versionNo }).where(eq(docReviews.id, existing.id));
-	} else {
+	if (!(await openPublishRequest(doc.id))) {
 		await db.insert(docReviews).values({
 			docId: doc.id,
 			kind: 'publish',
-			versionNo,
-			requestedBy: access.principal.username,
-			quorum: policy.review.quorum
+			versionNo: await latestVersionNo(doc.id),
+			requestedBy: access.principal.username
 		});
 	}
 	return 'pending';
 }
 
-/** Called after every edit so the wiki snapshot follows policy. */
+/** Maintainer approves a pending publication -> it goes live. */
+export async function approvePublish(docId: string, access: Access): Promise<ApprovalOutcome> {
+	const [doc] = await db.select().from(docs).where(eq(docs.id, docId)).limit(1);
+	if (!doc) return 'none';
+	if (!access.can(doc.workspaceId, 'maintainer')) return 'forbidden';
+	if (!(await openPublishRequest(docId))) return 'none';
+	await publishNow(doc);
+	await resolveRequest(docId, 'approved', access.principal.username);
+	return 'approved';
+}
+
+/** Maintainer rejects a pending publication -> it stays private. */
+export async function rejectPublish(docId: string, access: Access): Promise<ApprovalOutcome> {
+	const [doc] = await db.select().from(docs).where(eq(docs.id, docId)).limit(1);
+	if (!doc) return 'none';
+	if (!access.can(doc.workspaceId, 'maintainer')) return 'forbidden';
+	if (!(await openPublishRequest(docId))) return 'none';
+	await resolveRequest(docId, 'rejected', access.principal.username);
+	return 'rejected';
+}
+
+/** After every edit: a published doc's snapshot follows the live source immediately. */
 export async function onDocUpdated(doc: Doc): Promise<void> {
 	if (!doc.isPublic) return;
-	const policy = await getPolicy(doc.workspaceId);
-	if (policy.review.mode !== 'all') {
-		await db
-			.update(docs)
-			.set({ publishedVersionNo: await latestVersionNo(doc.id) })
-			.where(eq(docs.id, doc.id));
-		await syncAttachmentExposure(doc.workspaceId);
-	}
-}
-
-export type VoteOutcome = 'approved' | 'rejected' | 'recorded' | 'forbidden';
-
-export async function voteOnReview(
-	reviewId: number,
-	verdict: 'approve' | 'reject',
-	access: Access
-): Promise<VoteOutcome> {
-	const [review] = await db.select().from(docReviews).where(eq(docReviews.id, reviewId)).limit(1);
-	if (!review || review.state !== 'open') return 'forbidden';
-	const [doc] = await db.select().from(docs).where(eq(docs.id, review.docId)).limit(1);
-	if (!doc) return 'forbidden';
-
-	const policy = await getPolicy(doc.workspaceId);
-	const role = access.role(doc.workspaceId);
-	const username = access.principal.username;
-	if (!isApprover(policy, role, access.principal.claims)) return 'forbidden';
-	if (!policy.review.selfApprove && review.requestedBy === username) return 'forbidden';
-
-	if (verdict === 'reject') {
-		await db
-			.update(docReviews)
-			.set({ state: 'rejected', resolvedBy: username, resolvedAt: new Date() })
-			.where(eq(docReviews.id, reviewId));
-		return 'rejected';
-	}
-
 	await db
-		.insert(docReviewVotes)
-		.values({ reviewId, username, verdict })
-		.onConflictDoNothing();
-	const [count] = await db
-		.select({ n: sql<number>`count(*)::int` })
-		.from(docReviewVotes)
-		.where(and(eq(docReviewVotes.reviewId, reviewId), eq(docReviewVotes.verdict, 'approve')));
-
-	if ((count?.n ?? 0) >= review.quorum) {
-		await publishNow(doc);
-		await db
-			.update(docReviews)
-			.set({ state: 'approved', resolvedBy: username, resolvedAt: new Date() })
-			.where(eq(docReviews.id, reviewId));
-		return 'approved';
-	}
-	return 'recorded';
+		.update(docs)
+		.set({ publishedVersionNo: await latestVersionNo(doc.id) })
+		.where(eq(docs.id, doc.id));
+	await syncAttachmentExposure(doc.workspaceId);
 }
 
-/** A reader flag from the wiki: asks the workspace to revisit the doc. */
-export async function requestUpdate(docId: string, username: string, note: string): Promise<void> {
-	const existing = await openReview(docId, 'update');
-	if (existing) return;
-	await db.insert(docReviews).values({
-		docId,
-		kind: 'update',
-		requestedBy: username,
-		note: note.slice(0, 500)
-	});
-}
-
-export interface PendingReview {
+export interface PendingPublication {
 	id: number;
-	kind: string;
 	docId: string;
 	docTitle: string;
 	docSlug: string;
 	workspaceId: string;
 	requestedBy: string;
-	note: string;
-	quorum: number;
-	approvals: number;
 	createdAt: Date;
 }
 
-export async function listOpenReviews(workspaceIds?: string[]): Promise<PendingReview[]> {
+export async function listPendingPublications(
+	workspaceIds?: string[]
+): Promise<PendingPublication[]> {
 	const rows = await db
 		.select({
 			id: docReviews.id,
-			kind: docReviews.kind,
 			docId: docReviews.docId,
 			docTitle: docs.title,
 			docSlug: docs.slug,
 			workspaceId: docs.workspaceId,
 			requestedBy: docReviews.requestedBy,
-			note: docReviews.note,
-			quorum: docReviews.quorum,
-			createdAt: docReviews.createdAt,
-			approvals: sql<number>`(SELECT count(*)::int FROM doc_review_votes v WHERE v.review_id = ${docReviews.id} AND v.verdict = 'approve')`
+			createdAt: docReviews.createdAt
 		})
 		.from(docReviews)
 		.innerJoin(docs, eq(docs.id, docReviews.docId))
-		.where(and(eq(docReviews.state, 'open'), isNull(docs.deletedAt)))
+		.where(
+			and(eq(docReviews.kind, 'publish'), eq(docReviews.state, 'open'), isNull(docs.deletedAt))
+		)
 		.orderBy(desc(docReviews.createdAt));
 	const scoped = workspaceIds ? rows.filter((r) => workspaceIds.includes(r.workspaceId)) : rows;
 	return scoped.map((r) => ({ ...r, requestedBy: r.requestedBy ?? '' }));

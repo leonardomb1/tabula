@@ -1,6 +1,6 @@
 import { json, error, type RequestHandler } from '@sveltejs/kit';
 import { requirePlatformAdmin, requireRole } from '$lib/server/apiGuards';
-import { quorumDeadlocks, sanitizePolicy } from '$lib/policy';
+import { sanitizePolicy } from '$lib/policy';
 import {
 	deleteWorkspace,
 	getPolicy,
@@ -35,12 +35,6 @@ export const PATCH: RequestHandler = async ({ locals, params, request }) => {
 
 	if (body.policy !== undefined) {
 		const candidate = sanitizePolicy(body.policy);
-		const maintainers = (await listBindings(ws))
-			.filter((b) => b.role === 'maintainer')
-			.map((b) => ({ attribute: b.attribute, value: b.value }));
-		if (quorumDeadlocks(candidate, maintainers)) {
-			throw error(400, 'quorum exceeds the number of approvers it can ever have');
-		}
 		if (!(await updatePolicy(ws, candidate))) throw error(404, 'workspace not found');
 	}
 

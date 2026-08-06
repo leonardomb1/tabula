@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import * as m from '$lib/paraglide/messages';
 	import type { PageProps } from './$types';
 
-	let { data, form }: PageProps = $props();
+	let { data }: PageProps = $props();
 
 	function when(iso: string): string {
 		return new Date(iso).toLocaleDateString();
@@ -39,13 +38,6 @@
 		<a class="request" href={`/wiki/${encodeURIComponent(page.params.slug ?? '')}/pdf`} target="_blank" rel="noopener">
 			{m.doc_export_pdf()}
 		</a>
-		{#if data.updateRequested || form?.requested}
-			<span class="requested">{m.wiki_request_update_done()}</span>
-		{:else if data.canRequestUpdate}
-			<form method="POST" action="?/requestUpdate" use:enhance>
-				<button type="submit" class="request">{m.wiki_request_update()}</button>
-			</form>
-		{/if}
 	</footer>
 </article>
 
@@ -123,10 +115,5 @@
 	.request:hover {
 		background: var(--surface-hover);
 		color: var(--text);
-	}
-	.requested {
-		font-size: 12px;
-		color: var(--text-faint);
-		font-style: italic;
 	}
 </style>

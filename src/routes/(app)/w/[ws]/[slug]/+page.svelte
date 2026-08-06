@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
+	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -15,6 +16,21 @@
 	const wsId = $derived(page.params.ws ?? '');
 
 	let exportOpen = $state(false);
+	let publishOpen = $state(false);
+	let copied = $state(false);
+
+	const publicUrl = $derived(
+		data.doc.publicSlug ? `/wiki/${encodeURIComponent(data.doc.publicSlug)}` : ''
+	);
+	async function copyLink() {
+		try {
+			await navigator.clipboard.writeText(location.origin + publicUrl);
+			copied = true;
+			setTimeout(() => (copied = false), 1500);
+		} catch {
+			/* clipboard unavailable */
+		}
+	}
 
 	function exportHref(slug?: string, options: Record<string, string> = {}): string {
 		const base = resolve('/api/export/[id]', { id: data.doc.id });
@@ -47,6 +63,11 @@
 			</h1>
 			<div class="doc-actions">
 				<a href={historyHref(wsId, data.doc.slug)}>{m.doc_history()}</a>
+				{#if data.canPublish || data.pendingPublish?.canApprove}
+					<button type="button" class="publish-btn" onclick={() => (publishOpen = true)}>
+						{m.publish_button()}
+					</button>
+				{/if}
 				{#if data.canWrite}
 					<a class="edit" href={editHref(wsId, data.doc.slug)}>{m.doc_edit()}</a>
 				{/if}
@@ -88,20 +109,6 @@
 		{/if}
 	</header>
 
-	{#if data.pendingPublish?.canApprove}
-		<div class="review-banner">
-			<span>{m.review_requested_by()} <strong>{data.pendingPublish.requestedBy}</strong></span>
-			<form method="POST" action="?/approve">
-				<input type="hidden" name="review" value={data.pendingPublish.id} />
-				<button type="submit" class="approve">{m.review_approve()}</button>
-			</form>
-			<form method="POST" action="?/reject">
-				<input type="hidden" name="review" value={data.pendingPublish.id} />
-				<button type="submit" class="reject">{m.review_reject()}</button>
-			</form>
-		</div>
-	{/if}
-
 	{#if data.renderError}
 		<p class="render-error">{data.renderError}</p>
 	{:else if !data.html.trim()}
@@ -132,7 +139,178 @@
 	{exportHref}
 />
 
+{#if publishOpen}
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+	<div class="pub-overlay" onclick={() => (publishOpen = false)}></div>
+	<div class="pub-panel" role="dialog" aria-modal="true" aria-label={m.publish_heading()}>
+		<header class="pub-head">
+			<h2>{m.publish_heading()}</h2>
+			<button type="button" class="pub-close" onclick={() => (publishOpen = false)} aria-label={m.publish_close()}>×</button>
+		</header>
+
+		{#if data.doc.isPublic && data.doc.publicSlug}
+			<p class="pub-state"><span class="dot live"></span>{m.publish_state_public()}</p>
+			<div class="pub-link">
+				<a href={publicUrl} target="_blank" rel="noopener">{m.publish_view()}</a>
+				<button type="button" onclick={copyLink}>{copied ? m.publish_copied() : m.publish_copy()}</button>
+			</div>
+			{#if data.canPublish}
+				<form method="POST" action="?/unpublish" use:enhance={() => async ({ update }) => { await update(); publishOpen = false; }}>
+					<button type="submit" class="pub-btn danger">{m.publish_undo()}</button>
+				</form>
+			{/if}
+		{:else if data.pendingPublish}
+			<p class="pub-state"><span class="dot pending"></span>{m.publish_state_pending()}</p>
+			<p class="pub-sub">{m.publish_requested_by({ who: data.pendingPublish.requestedBy })}</p>
+			{#if data.pendingPublish.canApprove}
+				<form method="POST" action="?/approve" use:enhance={() => async ({ update }) => { await update(); publishOpen = false; }}>
+					<button type="submit" class="pub-btn primary">{m.publish_approve()}</button>
+				</form>
+				<form method="POST" action="?/reject" use:enhance={() => async ({ update }) => { await update(); publishOpen = false; }}>
+					<button type="submit" class="pub-btn">{m.publish_reject()}</button>
+				</form>
+			{:else if data.canPublish}
+				<form method="POST" action="?/unpublish" use:enhance={() => async ({ update }) => { await update(); publishOpen = false; }}>
+					<button type="submit" class="pub-btn">{m.publish_cancel()}</button>
+				</form>
+			{/if}
+		{:else}
+			<p class="pub-state"><span class="dot"></span>{m.publish_state_private()}</p>
+			<p class="pub-sub">{m.publish_hint_private()}</p>
+			{#if data.canPublish}
+				<form method="POST" action="?/publish" use:enhance={() => async ({ update }) => { await update(); publishOpen = false; }}>
+					<button type="submit" class="pub-btn primary">{m.publish_do()}</button>
+				</form>
+			{/if}
+		{/if}
+	</div>
+{/if}
+
 <style>
+	.publish-btn {
+		font: inherit;
+		color: var(--text);
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0;
+	}
+	.publish-btn:hover {
+		color: var(--accent);
+	}
+
+	.pub-overlay {
+		position: fixed;
+		inset: 0;
+		background: rgba(20, 18, 14, 0.35);
+		z-index: 70;
+	}
+	.pub-panel {
+		position: fixed;
+		top: 0;
+		right: 0;
+		height: 100vh;
+		width: min(24rem, 92vw);
+		background: var(--surface);
+		border-left: 1px solid var(--border);
+		box-shadow: var(--shadow);
+		z-index: 71;
+		padding: 1.25rem 1.4rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.9rem;
+		overflow-y: auto;
+	}
+	.pub-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.pub-head h2 {
+		font-size: 1.15rem;
+		margin: 0;
+	}
+	.pub-close {
+		font-size: 1.5rem;
+		line-height: 1;
+		color: var(--text-muted);
+		background: none;
+		border: none;
+		cursor: pointer;
+	}
+	.pub-close:hover {
+		color: var(--text);
+	}
+	.pub-state {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0;
+		font-weight: 600;
+	}
+	.pub-state .dot {
+		width: 0.6rem;
+		height: 0.6rem;
+		border-radius: 50%;
+		background: var(--border-strong);
+	}
+	.pub-state .dot.live {
+		background: #3f9d6a;
+	}
+	.pub-state .dot.pending {
+		background: var(--accent-soft);
+	}
+	.pub-sub {
+		margin: 0;
+		color: var(--text-muted);
+		font-size: 0.9rem;
+	}
+	.pub-link {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		font-size: 0.9rem;
+	}
+	.pub-link button {
+		font: inherit;
+		font-size: 0.85rem;
+		color: var(--text-muted);
+		background: none;
+		border: 1px solid var(--border-strong);
+		border-radius: 7px;
+		padding: 0.25rem 0.55rem;
+		cursor: pointer;
+	}
+	.pub-panel form {
+		margin: 0;
+	}
+	.pub-btn {
+		width: 100%;
+		padding: 0.6rem;
+		font: inherit;
+		font-weight: 600;
+		border-radius: 9px;
+		border: 1px solid var(--border-strong);
+		background: var(--bg-tint);
+		color: var(--text);
+		cursor: pointer;
+	}
+	.pub-btn:hover {
+		border-color: var(--text-muted);
+	}
+	.pub-btn.primary {
+		background: var(--accent);
+		color: #fff;
+		border-color: transparent;
+	}
+	.pub-btn.primary:hover {
+		background: var(--accent-hover);
+	}
+	.pub-btn.danger:hover {
+		color: var(--danger);
+		border-color: var(--danger);
+	}
+
 	.doc {
 		max-width: 46rem;
 		margin: 0 auto;
@@ -260,40 +438,6 @@
 		border: 1px solid var(--border-strong);
 	}
 
-	.review-banner {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		margin: 0 0 22px;
-		padding: 9px 12px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius);
-		background: var(--surface);
-		font-size: 13px;
-		color: var(--text-muted);
-	}
-	.review-banner span {
-		flex: 1;
-	}
-	.review-banner button {
-		height: 26px;
-		padding: 0 12px;
-		border-radius: var(--radius-sm);
-		font-family: inherit;
-		font-size: 12px;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.review-banner .approve {
-		border: 0;
-		background: var(--brand);
-		color: #fff;
-	}
-	.review-banner .reject {
-		border: 1px solid var(--danger);
-		background: var(--danger-wash);
-		color: var(--danger);
-	}
 
 	.backlinks {
 		margin-top: 56px;

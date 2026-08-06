@@ -5,10 +5,16 @@ import { getOrCompileSvg, TypstCompileError } from '$lib/server/typst';
 import { listTemplates, parseTemplateMeta } from '$lib/server/templates';
 import { getPeople, unknownPerson } from '$lib/server/people';
 import { getPolicy } from '$lib/server/workspaces';
-import { openReview, voteOnReview } from '$lib/server/publication';
+import {
+	openPublishRequest,
+	requestPublish,
+	unpublish,
+	approvePublish,
+	rejectPublish
+} from '$lib/server/publication';
 import { recordView } from '$lib/server/views';
 import { requireUser } from '$lib/server/apiGuards';
-import { isApprover } from '$lib/policy';
+import { canMakePublic, canApprovePublish } from '$lib/policy';
 import type { Person } from '$lib/people';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -39,21 +45,20 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		doc.updatedBy && locals.user
 			? getPeople([doc.updatedBy], params.ws)
 			: Promise.resolve({} as Record<string, Person>),
-		openReview(doc.id, 'publish')
+		openPublishRequest(doc.id)
 	]);
 
 	recordView(doc.id, 'app');
 
-	let canApprove = false;
-	if (pending && locals.access) {
-		const policy = await getPolicy(params.ws);
-		canApprove = isApprover(policy, locals.access.role(params.ws), locals.access.principal.claims);
-	}
+	// Publication controls: who can publish/unpublish here, and who can approve.
+	const role = locals.access?.role(params.ws) ?? null;
+	const policy = locals.access ? await getPolicy(params.ws) : null;
+	const canPublish = policy ? canMakePublic(policy, role) : false;
+	const canApprove = !!pending && canApprovePublish(role);
 
 	return {
-		pendingPublish: pending
-			? { id: pending.id, requestedBy: pending.requestedBy ?? '', canApprove }
-			: null,
+		pendingPublish: pending ? { requestedBy: pending.requestedBy ?? '', canApprove } : null,
+		canPublish,
 		canWrite: locals.access?.can(params.ws, 'editor') ?? false,
 		templates: templates.map((t) => ({
 			slug: t.slug,
@@ -73,9 +78,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			isPublic: doc.isPublic,
 			publicSlug: doc.publicSlug,
 			updatedAt: doc.updatedAt,
-			updatedBy: doc.updatedBy
-				? (people[doc.updatedBy] ?? unknownPerson(doc.updatedBy))
-				: null,
+			updatedBy: doc.updatedBy ? (people[doc.updatedBy] ?? unknownPerson(doc.updatedBy)) : null,
 			frontmatter: doc.frontmatter as Record<string, unknown>
 		},
 		html,
@@ -88,21 +91,41 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 };
 
 export const actions: Actions = {
-	approve: async ({ request, locals }) => {
+	publish: async ({ params, locals }) => {
 		const { access } = requireUser(locals);
-		const id = Number((await request.formData()).get('review'));
-		if (!Number.isInteger(id)) return fail(400, { error: 'bad_review' });
-		const outcome = await voteOnReview(id, 'approve', access);
+		const doc = await getDocBySlug(params.ws, params.slug);
+		if (!doc) return fail(404, { error: 'not_found' });
+		const outcome = await requestPublish(doc, access);
 		if (outcome === 'forbidden') return fail(403, { error: 'forbidden' });
-		return { outcome };
+		return { published: outcome };
 	},
 
-	reject: async ({ request, locals }) => {
+	unpublish: async ({ params, locals }) => {
 		const { access } = requireUser(locals);
-		const id = Number((await request.formData()).get('review'));
-		if (!Number.isInteger(id)) return fail(400, { error: 'bad_review' });
-		const outcome = await voteOnReview(id, 'reject', access);
+		const doc = await getDocBySlug(params.ws, params.slug);
+		if (!doc) return fail(404, { error: 'not_found' });
+		if (!canMakePublic(await getPolicy(params.ws), access.role(params.ws))) {
+			return fail(403, { error: 'forbidden' });
+		}
+		await unpublish(doc.id);
+		return { unpublished: true };
+	},
+
+	approve: async ({ params, locals }) => {
+		const { access } = requireUser(locals);
+		const doc = await getDocBySlug(params.ws, params.slug);
+		if (!doc) return fail(404, { error: 'not_found' });
+		const outcome = await approvePublish(doc.id, access);
 		if (outcome === 'forbidden') return fail(403, { error: 'forbidden' });
-		return { outcome };
+		return { approved: outcome };
+	},
+
+	reject: async ({ params, locals }) => {
+		const { access } = requireUser(locals);
+		const doc = await getDocBySlug(params.ws, params.slug);
+		if (!doc) return fail(404, { error: 'not_found' });
+		const outcome = await rejectPublish(doc.id, access);
+		if (outcome === 'forbidden') return fail(403, { error: 'forbidden' });
+		return { rejected: outcome };
 	}
 };

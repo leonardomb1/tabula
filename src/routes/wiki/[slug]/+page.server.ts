@@ -1,10 +1,10 @@
-import { error, fail } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 import { resolvePublicDocRefs } from '$lib/server/docs';
 import { renderMarkdown } from '$lib/server/markdown';
 import { getOrCompileSvg, TypstCompileError } from '$lib/server/typst';
-import { getPublishedDoc, openReview, requestUpdate } from '$lib/server/publication';
+import { getPublishedDoc } from '$lib/server/publication';
 import { recordView, viewCounts } from '$lib/server/views';
-import type { Actions, PageServerLoad } from './$types';
+import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	const hit = await getPublishedDoc(params.slug);
@@ -32,7 +32,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	recordView(doc.id, 'wiki');
 	const views = (await viewCounts([doc.id])).get(doc.id) ?? 0;
-	const updateRequested = !!(await openReview(doc.id, 'update'));
 
 	return {
 		article: {
@@ -45,19 +44,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		},
 		html,
 		renderError,
-		views,
-		updateRequested,
-		canRequestUpdate: !!locals.user
+		views
 	};
-};
-
-export const actions: Actions = {
-	requestUpdate: async ({ params, locals, request }) => {
-		if (!locals.user) return fail(401, { error: 'auth' });
-		const hit = await getPublishedDoc(params.slug);
-		if (!hit) return fail(404, { error: 'gone' });
-		const data = await request.formData();
-		await requestUpdate(hit.doc.id, locals.user.username, String(data.get('note') ?? ''));
-		return { requested: true };
-	}
 };
