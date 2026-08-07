@@ -43,17 +43,33 @@ export function recordView(docId: string, source: ViewSource): void {
 	}
 }
 
-/** Total views per doc over the trailing window, both surfaces combined. */
-export async function viewCounts(docIds: string[], days = 30): Promise<Map<string, number>> {
+export interface ViewCountOptions {
+	/** Restrict to one surface. Omit to combine app and wiki reads. */
+	source?: ViewSource;
+	/** Trailing window in days. Omit for the all-time total. */
+	days?: number;
+}
+
+/**
+ * Views per doc. All-time by default: a windowed number shown as a plain total
+ * shrinks as old days age out, which reads as the counter losing views.
+ */
+export async function viewCounts(
+	docIds: string[],
+	opts: ViewCountOptions = {}
+): Promise<Map<string, number>> {
 	if (docIds.length === 0) return new Map();
 	const idList = sql.join(
 		docIds.map((id) => sql`${id}`),
 		sql`, `
 	);
+	const since =
+		opts.days === undefined ? sql`` : sql` AND day >= current_date - ${opts.days}::int`;
+	const source = opts.source === undefined ? sql`` : sql` AND source = ${opts.source}`;
 	const rows = (await db.execute(sql`
 		SELECT doc_id, sum(count)::int AS total
 		FROM doc_view_daily
-		WHERE doc_id IN (${idList}) AND day >= current_date - ${days}::int
+		WHERE doc_id IN (${idList})${since}${source}
 		GROUP BY doc_id`)) as unknown as { doc_id: string; total: number }[];
 	return new Map(rows.map((r) => [r.doc_id, r.total]));
 }

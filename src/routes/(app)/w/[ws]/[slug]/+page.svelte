@@ -8,12 +8,19 @@
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
 	import PersonCard from '$lib/components/PersonCard.svelte';
 	import { formatDate } from '$lib/time';
+	import { countView } from '$lib/view-count';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
 	const locale = $derived(getLocale());
 	const wsId = $derived(page.params.ws ?? '');
+
+	// Counted from the browser: link hover preloads the server load, so counting
+	// there would score documents nobody opened.
+	$effect(() => {
+		countView(data.doc.id, 'app');
+	});
 
 	let exportOpen = $state(false);
 	let publishOpen = $state(false);

@@ -12,7 +12,6 @@ import {
 	approvePublish,
 	rejectPublish
 } from '$lib/server/publication';
-import { recordView } from '$lib/server/views';
 import { requireUser } from '$lib/server/apiGuards';
 import { canMakePublic, canApprovePublish } from '$lib/policy';
 import type { Person } from '$lib/people';
@@ -47,8 +46,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			: Promise.resolve({} as Record<string, Person>),
 		openPublishRequest(doc.id)
 	]);
-
-	recordView(doc.id, 'app');
 
 	// Publication controls: who can publish/unpublish here, and who can approve.
 	const role = locals.access?.role(params.ws) ?? null;

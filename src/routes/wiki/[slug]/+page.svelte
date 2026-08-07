@@ -1,8 +1,15 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
+	import { countView } from '$lib/view-count';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	// Counted here rather than in load: hover-preloading runs loads for pages
+	// nobody opens. Shown count excludes this read until the server flushes.
+	$effect(() => {
+		countView(data.article.id, 'wiki');
+	});
 
 	function when(iso: string): string {
 		return new Date(iso).toLocaleDateString();

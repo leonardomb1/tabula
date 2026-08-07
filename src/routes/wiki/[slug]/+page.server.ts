@@ -3,7 +3,7 @@ import { resolvePublicDocRefs } from '$lib/server/docs';
 import { renderMarkdown } from '$lib/server/markdown';
 import { getOrCompileSvg, TypstCompileError } from '$lib/server/typst';
 import { getPublishedDoc } from '$lib/server/publication';
-import { recordView, viewCounts } from '$lib/server/views';
+import { viewCounts } from '$lib/server/views';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -30,11 +30,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		renderError = err instanceof TypstCompileError ? err.message : 'render failed';
 	}
 
-	recordView(doc.id, 'wiki');
-	const views = (await viewCounts([doc.id])).get(doc.id) ?? 0;
+	// Wiki numbers count wiki reads only — internal app reads are not public reach.
+	const views = (await viewCounts([doc.id], { source: 'wiki' })).get(doc.id) ?? 0;
 
 	return {
 		article: {
+			id: doc.id,
 			title,
 			mode: doc.mode,
 			tags: doc.tags,

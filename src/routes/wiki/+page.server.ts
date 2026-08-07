@@ -5,7 +5,10 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ url }) => {
 	const tag = url.searchParams.get('tag') ?? '';
 	const all = await listPublishedDocs();
-	const views = await viewCounts(all.map((d) => d.id));
+	const views = await viewCounts(
+		all.map((d) => d.id),
+		{ source: 'wiki' }
+	);
 
 	const tagCounts = new Map<string, number>();
 	for (const d of all) for (const t of d.tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
