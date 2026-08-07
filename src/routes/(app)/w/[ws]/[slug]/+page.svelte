@@ -188,15 +188,20 @@
 
 <style>
 	.publish-btn {
-		font: inherit;
-		color: var(--text);
+		font-family: inherit;
+		font-size: 12.5px;
+		padding: 4px 10px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
 		background: none;
-		border: none;
+		color: var(--brand);
+		font-weight: 500;
 		cursor: pointer;
-		padding: 0;
+		transition: background-color 120ms ease, border-color 120ms ease;
 	}
 	.publish-btn:hover {
-		color: var(--accent);
+		background: var(--surface-hover);
+		border-color: var(--brand);
 	}
 
 	.pub-overlay {
@@ -258,7 +263,7 @@
 		background: #3f9d6a;
 	}
 	.pub-state .dot.pending {
-		background: var(--accent-soft);
+		background: #d9a13e;
 	}
 	.pub-sub {
 		margin: 0;
@@ -291,7 +296,7 @@
 		font-weight: 600;
 		border-radius: 9px;
 		border: 1px solid var(--border-strong);
-		background: var(--bg-tint);
+		background: var(--surface);
 		color: var(--text);
 		cursor: pointer;
 	}
@@ -299,12 +304,12 @@
 		border-color: var(--text-muted);
 	}
 	.pub-btn.primary {
-		background: var(--accent);
+		background: var(--brand);
 		color: #fff;
 		border-color: transparent;
 	}
 	.pub-btn.primary:hover {
-		background: var(--accent-hover);
+		filter: brightness(1.07);
 	}
 	.pub-btn.danger:hover {
 		color: var(--danger);
