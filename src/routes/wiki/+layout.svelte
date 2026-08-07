@@ -24,7 +24,7 @@
 		</a>
 		{#if data.signedIn}
 			<a class="to-app" href="/">{m.wiki_open_in_app()}</a>
-		{:else}
+		{:else if data.canSignIn}
 			<a class="to-app" href="/login?redirectTo=%2Fwiki">{m.login_submit()}</a>
 		{/if}
 	</header>

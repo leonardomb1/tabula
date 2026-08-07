@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import * as m from '$lib/paraglide/messages';
 	import type { PageProps } from './$types';
 
@@ -33,12 +32,6 @@
 	{:else}
 		<div class="prose">{@html data.html}</div>
 	{/if}
-
-	<footer>
-		<a class="request" href={`/wiki/${encodeURIComponent(page.params.slug ?? '')}/pdf`} target="_blank" rel="noopener">
-			{m.doc_export_pdf()}
-		</a>
-	</footer>
 </article>
 
 <style>
@@ -95,25 +88,4 @@
 		white-space: pre-wrap;
 	}
 
-	footer {
-		margin-top: 48px;
-		padding-top: 16px;
-		border-top: 1px solid var(--border);
-	}
-	.request {
-		height: 28px;
-		padding: 0 12px;
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-sm);
-		background: var(--surface);
-		color: var(--text-muted);
-		font-family: inherit;
-		font-size: 12px;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.request:hover {
-		background: var(--surface-hover);
-		color: var(--text);
-	}
 </style>
