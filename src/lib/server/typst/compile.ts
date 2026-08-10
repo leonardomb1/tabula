@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { compiler, workspaceRoot } from './compiler';
+import { normalizeDiagnostics, summarize, type TypstDiagnostic } from './diagnose';
 import type { NodeCompiler, NodeTypstCompileResult } from '@myriaddreamin/typst-ts-node-compiler';
 
 export type Assets = Record<string, Uint8Array>;
@@ -34,8 +35,8 @@ function toCssPixels(svg: string): string {
 }
 
 export class TypstCompileError extends Error {
-	readonly diagnostics: unknown[];
-	constructor(message: string, diagnostics: unknown[]) {
+	readonly diagnostics: TypstDiagnostic[];
+	constructor(message: string, diagnostics: TypstDiagnostic[]) {
 		super(message);
 		this.name = 'TypstCompileError';
 		this.diagnostics = diagnostics;
@@ -54,8 +55,12 @@ function applyAssets(c: NodeCompiler, assets?: Assets) {
 function assertOk(res: NodeTypstCompileResult): void {
 	if (res.hasError()) {
 		const err = res.takeError();
-		const diags = (err?.shortDiagnostics as unknown[]) ?? [];
-		throw new TypstCompileError('typst: compilation failed', diags);
+		// `hasError()` must be read BEFORE takeError(): taking consumes the error
+		// and flips hasError() back to false.
+		const diags = normalizeDiagnostics((err?.shortDiagnostics as unknown[]) ?? [], workspaceRoot());
+		// The real message, not a fixed string: this one reaches users directly in
+		// the editor preview and on the document page.
+		throw new TypstCompileError(summarize(diags), diags);
 	}
 }
 

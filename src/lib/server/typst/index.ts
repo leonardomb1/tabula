@@ -10,6 +10,12 @@ export {
 	type Assets
 } from './compile';
 export {
+	explainCompileError,
+	type CompileFailureReport,
+	type CompileSources,
+	type TypstDiagnostic
+} from './diagnose';
+export {
 	getOrCompilePdf,
 	getOrCompilePdfKeyed,
 	isPdfCacheKey,

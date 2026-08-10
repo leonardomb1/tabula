@@ -22,7 +22,7 @@ import { ensureWorkspace, listWorkspaces } from '../workspaces';
 import { getTemplate, listTemplates, parseTemplateMeta, subjectInputs } from '../templates';
 import { renderMarkdown } from '../markdown';
 import { renderMarkdownToPdfKeyed } from '../markdown/pdf';
-import { compileSvg, TypstCompileError } from '../typst';
+import { compileSvg, explainCompileError, TypstCompileError } from '../typst';
 import { signArtifact } from '../artifacts';
 import { formalNameFor } from '../userSettings';
 import { personalWorkspaceId, slugify } from '../ids';
@@ -462,13 +462,22 @@ export function buildMcpServer(access: Access): McpServer {
 				return ok({ id: doc.id, rev: doc.rev, mode: doc.mode, compiles: true });
 			} catch (err) {
 				if (err instanceof TypstCompileError) {
+					// One input, so hand it in under both labels: typst compiles a stored
+					// doc as __main__.typ and will call it "template" regardless of mode,
+					// and either way the line to fix is in this source.
 					return failWith({
-						error: 'compile_failed',
+						...explainCompileError(
+							err.message,
+							err.diagnostics,
+							{ template: doc.source, document: doc.source },
+							{
+								nextStep:
+									'Fix it with patch_doc (anchored on the text named in the message, or the line from candidateLines), then call check_doc again. Keep going until it compiles — do not hand a broken document to render_pdf, and do not give up on it.'
+							}
+						),
 						compiles: false,
 						rev: doc.rev,
-						totalLines: lineCount(doc.source),
-						message: err.message,
-						diagnostics: err.diagnostics
+						totalLines: lineCount(doc.source)
 					});
 				}
 				return failWith({
@@ -658,7 +667,16 @@ export function buildMcpServer(access: Access): McpServer {
 				inputs
 			});
 		} catch (err) {
-			if (err instanceof TypstCompileError) return fail(`Template failed to compile: ${err.message}`);
+			if (err instanceof TypstCompileError) {
+				// The diagnostics are the whole point: a bare "compilation failed"
+				// leaves the caller nothing to fix and it gives up on the document.
+				return failWith(
+					explainCompileError(err.message, err.diagnostics, {
+						template: args.wrapper,
+						document: args.content
+					})
+				);
+			}
 			throw err;
 		}
 
@@ -742,7 +760,8 @@ export function buildMcpServer(access: Access): McpServer {
 			title: 'Render a PDF',
 			description:
 				'Compile a document into a PDF with one of the workspace templates. Nothing is stored as a document: the result is a short-lived signed link the caller can download, or base64 bytes when inline is true. Use list_templates first to pick a template and learn its options. Stored templates are fixed layouts (A4 portrait, corporate chrome) — for any other page format, size, orientation, or free-form composition you MUST use render_pdf_custom with an ephemeral template instead.\n' +
-				'PREFER docId over content. With docId the source is read on the server, so a long document costs nothing to send and nothing to send again after a fix; pass content only for a short one-off you have not stored.',
+				'PREFER docId over content. With docId the source is read on the server, so a long document costs nothing to send and nothing to send again after a fix; pass content only for a short one-off you have not stored.\n' +
+				'If it fails to compile you get diagnostics naming the fault and the input it is in. Fix that and call this again — typst reports one error at a time, so iterate until it renders rather than reporting failure to the user.',
 			inputSchema: {
 				docId: z
 					.string()
@@ -797,6 +816,7 @@ export function buildMcpServer(access: Access): McpServer {
 		{
 			title: 'Render a PDF with an ephemeral template',
 			description:
+				'ON FAILURE, ITERATE — DO NOT GIVE UP. A failed compile returns diagnostics naming the fault and which input it is in (template vs document), plus candidate lines. typst reports only the FIRST error and gives no line numbers, so fix that one thing and call this tool again; a second error appearing is normal progress, not a wall. Never respond that the document cannot be produced without having retried, and never fall back to resending the whole body.\n' +
 				'Compile markdown into a PDF using a one-off Typst template supplied in this call — nothing is stored, so this is how you COMPOSE layouts render_pdf cannot produce. Any different page format (A5, landscape, slides, labels, custom margins), custom typography, or free-form design REQUIRES an ephemeral template like this; the stored workspace templates are fixed and cannot be altered per call. Contract: templateSource is a complete Typst document that renders the markdown itself, typically ending in `#import "@preview/cmarker:0.1.6"` … `#cmarker.render(read("/doc.md"), raw-typst: true, scope: (image: (path, alt: none) => image(path, alt: alt)))` — content arrives at /doc.md, the image scope handler is required when the markdown references attachments, and metadata (title, author, date, tags, plus every key from options as fm-style strings) arrives via sys.inputs with defaults, e.g. `#let title = sys.inputs.at("title", default: "")`. ```typst blocks inside the content still work. Result is a short-lived signed link, or base64 bytes when inline is true.',
 			inputSchema: {
 				docId: z
