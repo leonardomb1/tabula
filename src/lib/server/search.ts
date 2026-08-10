@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { db } from './db';
 import type { Access } from './access';
+import { visibleDocs } from './visibility';
 
 export interface SearchOptions {
 	query: string;
@@ -51,7 +52,7 @@ export async function searchDocs(access: Access, opts: SearchOptions): Promise<S
 			ts_headline('public.pt_unaccent', body_text, ${tsq},
 				'MaxFragments=2, MinWords=4, MaxWords=16, StartSel=<mark>, StopSel=</mark>') AS snippet
 		FROM docs
-		WHERE deleted_at IS NULL AND ${gate} ${wsFilter} AND ${meaningful} AND search @@ ${tsq}
+		WHERE ${visibleDocs} AND ${gate} ${wsFilter} AND ${meaningful} AND search @@ ${tsq}
 		ORDER BY rank DESC
 		LIMIT ${limit} OFFSET ${offset}
 	`);
@@ -67,7 +68,7 @@ export async function searchDocs(access: Access, opts: SearchOptions): Promise<S
 			word_similarity(public.immutable_unaccent(${q}), public.immutable_unaccent(title)) AS rank,
 			left(body_text, 160) AS snippet
 		FROM docs
-		WHERE deleted_at IS NULL AND ${gate} ${wsFilter}
+		WHERE ${visibleDocs} AND ${gate} ${wsFilter}
 			AND public.immutable_unaccent(${q}) <% public.immutable_unaccent(title)
 		ORDER BY rank DESC
 		LIMIT ${limit} OFFSET ${offset}

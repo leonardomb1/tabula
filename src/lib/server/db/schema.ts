@@ -61,6 +61,12 @@ export const workspaceBindings = pgTable(
  * A document. Postgres is the source of truth for text; object storage holds only
  * binaries. `search` is a stored generated tsvector, so Postgres maintains the index
  * on every write with no trigger to keep in sync. Deletion is soft.
+ *
+ * `ephemeral` marks an agent draft: disposable, high-churn, swept on a TTL, and
+ * deliberately invisible to search, listings, backlinks and version history until
+ * a human promotes it (see $lib/server/drafts). Drafts trade unbounded history for
+ * a single rolling `prevSource` — one level of undo at constant storage — because
+ * an agent that mangles a patch must recover without re-emitting the document.
  */
 export const docs = pgTable(
 	'docs',
@@ -82,22 +88,51 @@ export const docs = pgTable(
 		publishedVersionNo: integer('published_version_no'),
 		frontmatter: jsonb('frontmatter').notNull().default(sql`'{}'::jsonb`),
 
+		ephemeral: boolean('ephemeral').notNull().default(false),
+		/** Previous source of an ephemeral draft: the one undo step. Null otherwise. */
+		prevSource: text('prev_source'),
+		/** Provenance of a draft, e.g. 'perguntai'. Display only — never load-bearing. */
+		origin: text('origin'),
+		/**
+		 * Monotonic write counter, the concurrency token for patch edits. Versions
+		 * cannot serve that role: drafts have no version rows by design, and a patch
+		 * applied against a stale source must be rejected rather than merged blind.
+		 */
+		rev: integer('rev').notNull().default(0),
+
 		createdBy: text('created_by'),
 		updatedBy: text('updated_by'),
 		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 		deletedAt: timestamp('deleted_at', { withTimezone: true }),
 
+		/**
+		 * Drafts generate an EMPTY tsvector, so they hold no GIN entry at all. The
+		 * shared visibility predicate ($lib/server/visibility) is what guarantees
+		 * drafts stay out of results; this makes a future query that forgets it
+		 * unable to match one on full-text anyway.
+		 */
 		search: tsvector('search').generatedAlwaysAs(
-			sql`setweight(to_tsvector('public.pt_unaccent'::regconfig, coalesce(title, '')), 'A') || setweight(to_tsvector('public.en_unaccent'::regconfig, coalesce(title, '')), 'A') || setweight(array_to_tsvector(tags), 'B') || setweight(public.tags_tsvector(tags), 'B') || setweight(to_tsvector('public.pt_unaccent'::regconfig, coalesce(body_text, '')), 'C') || setweight(to_tsvector('public.en_unaccent'::regconfig, coalesce(body_text, '')), 'C')`
+			sql`case when ephemeral then ''::tsvector else setweight(to_tsvector('public.pt_unaccent'::regconfig, coalesce(title, '')), 'A') || setweight(to_tsvector('public.en_unaccent'::regconfig, coalesce(title, '')), 'A') || setweight(array_to_tsvector(tags), 'B') || setweight(public.tags_tsvector(tags), 'B') || setweight(to_tsvector('public.pt_unaccent'::regconfig, coalesce(body_text, '')), 'C') || setweight(to_tsvector('public.en_unaccent'::regconfig, coalesce(body_text, '')), 'C') end`
 		)
 	},
 	(t) => [
 		uniqueIndex('docs_ws_slug_uniq').on(t.workspaceId, t.slug),
 		index('docs_ws_idx').on(t.workspaceId),
 		index('docs_public_idx').on(t.isPublic),
-		index('docs_search_idx').using('gin', t.search),
-		index('docs_title_trgm_idx').using('gin', sql`${t.title} gin_trgm_ops`)
+		// Partial: keeps draft churn out of the indexes. A size and speed lever only
+		// — Postgres can still reach a draft row by seq scan, which is why the
+		// visibility predicate carries the correctness guarantee.
+		index('docs_search_idx')
+			.using('gin', t.search)
+			.where(sql`ephemeral = false`),
+		index('docs_title_trgm_idx')
+			.using('gin', sql`${t.title} gin_trgm_ops`)
+			.where(sql`ephemeral = false`),
+		/** Drives the TTL sweep, which only ever scans drafts. */
+		index('docs_draft_sweep_idx')
+			.on(t.updatedAt)
+			.where(sql`ephemeral`)
 	]
 );
 

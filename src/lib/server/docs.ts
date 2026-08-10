@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { db } from './db';
 import { docLinks, docs, docVersions, type Doc, type DocVersion } from './db/schema';
 import { newDocId, slugify } from './ids';
+import { visibleDocs } from './visibility';
 import { extractText } from './typst';
 import {
 	extractMarkdownText,
@@ -20,6 +21,10 @@ export interface CreateDocInput {
 	isPublic?: boolean;
 	frontmatter?: Record<string, unknown>;
 	actor: string;
+	/** Create as a disposable agent draft (see $lib/server/drafts). */
+	ephemeral?: boolean;
+	/** Provenance of a draft, e.g. 'perguntai'. */
+	origin?: string;
 }
 
 export interface UpdateDocPatch {
@@ -35,6 +40,30 @@ export class DocNotFoundError extends Error {
 	constructor(id: string) {
 		super(`doc not found: ${id}`);
 		this.name = 'DocNotFoundError';
+	}
+}
+
+/**
+ * A write was attempted against a source the caller had not seen. Thrown rather
+ * than merged: a patch computed from a stale source would either fail to match
+ * or, worse, match the wrong place and silently discard someone else's edit.
+ */
+export class DocRevisionConflictError extends Error {
+	constructor(
+		readonly id: string,
+		readonly actualRev: number,
+		readonly expectedRev: number
+	) {
+		super(`doc ${id} is at rev ${actualRev}, not ${expectedRev} — re-read before patching`);
+		this.name = 'DocRevisionConflictError';
+	}
+}
+
+/** Nothing to undo: the draft has not been edited since it was created. */
+export class DraftUndoUnavailableError extends Error {
+	constructor(id: string) {
+		super(`draft ${id} has no previous source to revert to`);
+		this.name = 'DraftUndoUnavailableError';
 	}
 }
 
@@ -55,7 +84,9 @@ export async function resolveDocRefs(
 		.where(
 			and(
 				eq(docs.workspaceId, workspaceId),
-				isNull(docs.deletedAt),
+				// A draft is not a link target: real docs must not grow wiki-links
+				// into something that expires in a week.
+				visibleDocs,
 				or(inArray(docs.slug, refs), inArray(docs.id, refs))
 			)
 		);
@@ -125,9 +156,14 @@ function frontmatterFor(
 
 export async function createDoc(input: CreateDocInput): Promise<Doc> {
 	const id = newDocId();
+	const ephemeral = input.ephemeral ?? false;
 	const slug = await uniqueSlug(input.workspaceId, input.slug ?? slugify(input.title));
 	const bodyText = await bodyTextFor(input.mode, input.source);
-	const links = input.mode === 'markdown' ? await computeLinks(input.workspaceId, input.source) : [];
+	// A draft neither records history nor emits link edges; promotion does both.
+	const links =
+		!ephemeral && input.mode === 'markdown'
+			? await computeLinks(input.workspaceId, input.source)
+			: [];
 
 	return db.transaction(async (tx) => {
 		const [doc] = await tx
@@ -143,19 +179,23 @@ export async function createDoc(input: CreateDocInput): Promise<Doc> {
 				tags: input.tags ?? [],
 				isPublic: input.isPublic ?? false,
 				frontmatter: frontmatterFor(input.mode, input.source, input.frontmatter),
+				ephemeral,
+				origin: input.origin ?? null,
 				createdBy: input.actor,
 				updatedBy: input.actor
 			})
 			.returning();
 
-		await tx.insert(docVersions).values({
-			docId: id,
-			versionNo: 1,
-			kind: 'edit',
-			source: input.source,
-			title: input.title,
-			editor: input.actor
-		});
+		if (!ephemeral) {
+			await tx.insert(docVersions).values({
+				docId: id,
+				versionNo: 1,
+				kind: 'edit',
+				source: input.source,
+				title: input.title,
+				editor: input.actor
+			});
+		}
 
 		if (links.length > 0) {
 			await tx.insert(docLinks).values(links.map((l) => ({ sourceDocId: id, ...l })));
@@ -175,21 +215,31 @@ async function nextVersionNo(tx: Tx, docId: string): Promise<number> {
 	return (row?.n ?? 0) + 1;
 }
 
-export async function updateDoc(id: string, patch: UpdateDocPatch, actor: string): Promise<Doc> {
+export async function updateDoc(
+	id: string,
+	patch: UpdateDocPatch,
+	actor: string,
+	opts: { expectedRev?: number } = {}
+): Promise<Doc> {
 	const current = await getDoc(id);
 	if (!current) throw new DocNotFoundError(id);
+	if (opts.expectedRev !== undefined && opts.expectedRev !== current.rev) {
+		throw new DocRevisionConflictError(id, current.rev, opts.expectedRev);
+	}
 
 	const mode = patch.mode ?? current.mode;
 	const source = patch.source ?? current.source;
 	const title = patch.title ?? current.title;
 	const sourceChanged = patch.source !== undefined || patch.mode !== undefined;
 	const bodyText = sourceChanged ? await bodyTextFor(mode, source) : current.bodyText;
-	const links = sourceChanged && mode === 'markdown'
-		? await computeLinks(current.workspaceId, source)
-		: null;
+	// Drafts emit no link edges and record no history — see the docs table comment.
+	const links =
+		!current.ephemeral && sourceChanged && mode === 'markdown'
+			? await computeLinks(current.workspaceId, source)
+			: null;
 
 	return db.transaction(async (tx) => {
-		const versionNo = await nextVersionNo(tx, id);
+		const versionNo = current.ephemeral ? null : await nextVersionNo(tx, id);
 		const [doc] = await tx
 			.update(docs)
 			.set({
@@ -202,20 +252,37 @@ export async function updateDoc(id: string, patch: UpdateDocPatch, actor: string
 				frontmatter: patch.source !== undefined || patch.mode !== undefined
 					? frontmatterFor(mode, source, patch.frontmatter)
 					: (patch.frontmatter ?? (current.frontmatter as Record<string, unknown>)),
+				// The draft's one undo step. Only moves when the source actually
+				// changed, so a title-only edit doesn't spend it.
+				...(current.ephemeral && sourceChanged ? { prevSource: current.source } : {}),
+				rev: sql`${docs.rev} + 1`,
 				updatedBy: actor,
 				updatedAt: new Date()
 			})
-			.where(eq(docs.id, id))
+			// Re-checking rev inside the statement is what makes the guard atomic:
+			// the read above cannot see a writer that commits between it and this.
+			.where(
+				opts.expectedRev !== undefined
+					? and(eq(docs.id, id), eq(docs.rev, opts.expectedRev))
+					: eq(docs.id, id)
+			)
 			.returning();
 
-		await tx.insert(docVersions).values({
-			docId: id,
-			versionNo,
-			kind: 'edit',
-			source,
-			title,
-			editor: actor
-		});
+		if (!doc) {
+			const fresh = await getDoc(id);
+			throw new DocRevisionConflictError(id, fresh?.rev ?? -1, opts.expectedRev ?? -1);
+		}
+
+		if (versionNo !== null) {
+			await tx.insert(docVersions).values({
+				docId: id,
+				versionNo,
+				kind: 'edit',
+				source,
+				title,
+				editor: actor
+			});
+		}
 
 		if (links !== null) {
 			await tx.delete(docLinks).where(eq(docLinks.sourceDocId, id));
@@ -226,6 +293,80 @@ export async function updateDoc(id: string, patch: UpdateDocPatch, actor: string
 
 		return doc;
 	});
+}
+
+/**
+ * Turn a draft into an ordinary document: history starts here, at the moment a
+ * human decided it mattered. Clearing `ephemeral` also re-evaluates the stored
+ * generated `search` column, so the doc becomes findable with no extra step.
+ * Idempotent — promoting a normal doc is a no-op.
+ */
+export async function promoteDoc(id: string, actor: string): Promise<Doc> {
+	const current = await getDoc(id);
+	if (!current) throw new DocNotFoundError(id);
+	if (!current.ephemeral) return current;
+
+	const links =
+		current.mode === 'markdown' ? await computeLinks(current.workspaceId, current.source) : [];
+
+	return db.transaction(async (tx) => {
+		const [doc] = await tx
+			.update(docs)
+			.set({
+				ephemeral: false,
+				prevSource: null,
+				rev: sql`${docs.rev} + 1`,
+				updatedBy: actor,
+				updatedAt: new Date()
+			})
+			.where(eq(docs.id, id))
+			.returning();
+
+		await tx.insert(docVersions).values({
+			docId: id,
+			versionNo: await nextVersionNo(tx, id),
+			kind: 'edit',
+			source: current.source,
+			title: current.title,
+			editor: actor
+		});
+
+		if (links.length > 0) {
+			await tx.insert(docLinks).values(links.map((l) => ({ sourceDocId: id, ...l })));
+		}
+
+		return doc;
+	});
+}
+
+/**
+ * Undo the last patch to a draft. The outgoing source becomes the new undo
+ * target, so revert is its own undo and a mistaken revert costs nothing.
+ */
+export async function revertDraft(id: string, actor: string): Promise<Doc> {
+	const current = await getDoc(id);
+	if (!current) throw new DocNotFoundError(id);
+	if (!current.ephemeral) throw new DraftUndoUnavailableError(id);
+	if (current.prevSource === null) throw new DraftUndoUnavailableError(id);
+
+	const restored = current.prevSource;
+	const bodyText = await bodyTextFor(current.mode, restored);
+
+	const [doc] = await db
+		.update(docs)
+		.set({
+			source: restored,
+			bodyText,
+			prevSource: current.source,
+			frontmatter: frontmatterFor(current.mode, restored),
+			rev: sql`${docs.rev} + 1`,
+			updatedBy: actor,
+			updatedAt: new Date()
+		})
+		.where(eq(docs.id, id))
+		.returning();
+	if (!doc) throw new DocNotFoundError(id);
+	return doc;
 }
 
 export async function getBacklinks(doc: {
@@ -239,7 +380,9 @@ export async function getBacklinks(doc: {
 		.innerJoin(docs, eq(docs.id, docLinks.sourceDocId))
 		.where(
 			and(
-				isNull(docs.deletedAt),
+				// Drafts never get doc_links rows in the first place; this keeps the
+				// guarantee if one ever slips in.
+				visibleDocs,
 				or(
 					eq(docLinks.targetDocId, doc.id),
 					and(eq(docLinks.targetSlug, doc.slug), eq(docs.workspaceId, doc.workspaceId))
@@ -265,14 +408,17 @@ export async function softDeleteDoc(id: string, actor: string): Promise<void> {
 			title: current.title,
 			editor: actor
 		});
-		await tx.update(docs).set({ deletedAt: new Date(), updatedBy: actor }).where(eq(docs.id, id));
+		await tx
+			.update(docs)
+			.set({ deletedAt: new Date(), rev: sql`${docs.rev} + 1`, updatedBy: actor })
+			.where(eq(docs.id, id));
 	});
 }
 
 export async function restoreDoc(id: string, actor: string): Promise<Doc> {
 	const [doc] = await db
 		.update(docs)
-		.set({ deletedAt: null, updatedBy: actor, updatedAt: new Date() })
+		.set({ deletedAt: null, rev: sql`${docs.rev} + 1`, updatedBy: actor, updatedAt: new Date() })
 		.where(eq(docs.id, id))
 		.returning();
 	if (!doc) throw new DocNotFoundError(id);
@@ -299,6 +445,7 @@ export async function restoreVersion(id: string, versionNo: number, actor: strin
 				source: snapshot.source,
 				title: snapshot.title,
 				bodyText,
+				rev: sql`${docs.rev} + 1`,
 				updatedBy: actor,
 				updatedAt: new Date()
 			})
@@ -326,6 +473,11 @@ export async function getDoc(id: string, opts: { includeDeleted?: boolean } = {}
 	return doc ?? null;
 }
 
+/**
+ * Deliberately draft-inclusive, like getDoc(): naming one slug is asking for that
+ * document, so the drafts tray and the agent can both open one. Only listings,
+ * search and link resolution hide drafts — see $lib/server/visibility.
+ */
 export async function getDocBySlug(workspaceId: string, slug: string): Promise<Doc | null> {
 	const [doc] = await db
 		.select()
@@ -335,12 +487,14 @@ export async function getDocBySlug(workspaceId: string, slug: string): Promise<D
 	return doc ?? null;
 }
 
-export async function listDocs(workspaceId: string): Promise<Doc[]> {
-	return db
-		.select()
-		.from(docs)
-		.where(and(eq(docs.workspaceId, workspaceId), isNull(docs.deletedAt)))
-		.orderBy(desc(docs.updatedAt));
+export async function listDocs(
+	workspaceId: string,
+	opts: { includeDrafts?: boolean } = {}
+): Promise<Doc[]> {
+	const where = opts.includeDrafts
+		? and(eq(docs.workspaceId, workspaceId), isNull(docs.deletedAt))
+		: and(eq(docs.workspaceId, workspaceId), visibleDocs);
+	return db.select().from(docs).where(where).orderBy(desc(docs.updatedAt));
 }
 
 export async function listVersions(docId: string): Promise<DocVersion[]> {

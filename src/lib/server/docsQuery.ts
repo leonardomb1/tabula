@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { db } from './db';
 import { docs } from './db/schema';
+import { visibleDocs } from './visibility';
 import {
 	DEFAULT_LIMIT,
 	MAX_LIMIT,
@@ -20,7 +21,7 @@ function textArray(values: string[]): SQL {
 }
 
 function scope(workspaceId: string, tags: string[]) {
-	const parts = [eq(docs.workspaceId, workspaceId), isNull(docs.deletedAt)];
+	const parts = [eq(docs.workspaceId, workspaceId), visibleDocs];
 	if (tags.length > 0) parts.push(sql`${docs.tags} @> ${textArray(tags)}`);
 	return and(...parts);
 }
@@ -61,7 +62,7 @@ export async function listTagCounts(workspaceId: string): Promise<TagCount[]> {
 	const rows = await db.execute(sql`
 		SELECT tag, count(*)::int AS count
 		FROM ${docs}, unnest(${docs.tags}) AS tag
-		WHERE ${docs.workspaceId} = ${workspaceId} AND ${docs.deletedAt} IS NULL
+		WHERE ${docs.workspaceId} = ${workspaceId} AND ${visibleDocs}
 		GROUP BY tag
 		ORDER BY count DESC, tag ASC
 	`);
