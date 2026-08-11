@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
+	import DocBody from '$lib/components/DocBody.svelte';
 	import { countView } from '$lib/view-count';
 	import type { PageProps } from './$types';
 
@@ -35,9 +36,9 @@
 	{#if data.renderError}
 		<p class="render-error">{data.renderError}</p>
 	{:else if data.article.mode === 'typst'}
-		<div class="typst-body">{@html data.html}</div>
+		<DocBody html={data.html} mode="typst" />
 	{:else}
-		<div class="prose">{@html data.html}</div>
+		<DocBody html={data.html} />
 	{/if}
 </article>
 

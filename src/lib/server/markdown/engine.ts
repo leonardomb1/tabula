@@ -43,7 +43,9 @@ async function build(): Promise<MarkdownIt> {
 		const info = tokens[idx].info.trim().split(/\s+/)[0];
 		if (info === 'typst') {
 			const id = snippetId(tokens[idx].content);
-			return `<figure class="typst-figure"><img src="/api/render/typst/${id}" alt="Typst figure" loading="lazy" /></figure>\n`;
+			// The inner scroller keeps a wide diagram scrollable while the expand
+			// button stays pinned to the figure's own corner.
+			return `<figure class="typst-figure"><div class="typst-scroll"><img src="/api/render/typst/${id}" alt="Typst figure" loading="lazy" /></div></figure>\n`;
 		}
 		return shikiFence(tokens, idx, options, env, self);
 	};

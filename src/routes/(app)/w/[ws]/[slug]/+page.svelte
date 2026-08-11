@@ -5,6 +5,7 @@
 	import { resolve } from '$app/paths';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { docHref, editHref, historyHref, workspaceHref } from '$lib/nav';
+	import DocBody from '$lib/components/DocBody.svelte';
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
 	import PersonCard from '$lib/components/PersonCard.svelte';
 	import { formatDate } from '$lib/time';
@@ -121,9 +122,9 @@
 	{:else if !data.html.trim()}
 		<p class="empty">{m.reader_empty()}</p>
 	{:else if data.doc.mode === 'typst'}
-		<div class="typst-body">{@html data.html}</div>
+		<DocBody html={data.html} mode="typst" />
 	{:else}
-		<div class="prose">{@html data.html}</div>
+		<DocBody html={data.html} />
 	{/if}
 
 	{#if data.backlinks.length > 0}
