@@ -5,21 +5,61 @@
 
 import { sql } from 'drizzle-orm';
 import { db } from './db';
-import { workspaceBindings, workspaces } from './db/schema';
+import { userSettings, workspaceBindings, workspaces } from './db/schema';
 import { personalWorkspaceId } from './ids';
-import { ATTR, PREFIX_SUFFIX, RANK, type Role } from '$lib/rbac';
+import { ATTR, PREFIX_SUFFIX, RANK, SYNTHETIC_ATTRIBUTES, type Role } from '$lib/rbac';
 
 export {
 	ATTR,
-	ATTR_PREFIX,
-	BINDABLE_ATTRIBUTES,
 	PREFIX_SUFFIX,
 	RANK,
 	ROLES,
+	SYNTHETIC_ATTRIBUTES,
 	matchesAny,
 	matchesSelector
 } from '$lib/rbac';
 export type { Role, Selector } from '$lib/rbac';
+
+export interface BindableAttribute {
+	key: string;
+	/** False for the wildcard, which takes no value. */
+	freeform: boolean;
+}
+
+/**
+ * What the binding editor offers. Since an attribute is just a claim name, the
+ * list is whatever the IdP has actually sent — read back off the sign-in
+ * snapshots — rather than a constant somebody has to remember to extend.
+ *
+ * ponytail: reads every snapshot row to union their keys. Fine at directory
+ * scale; if user_settings ever gets big, swap in `jsonb_object_keys` server-side.
+ */
+export async function bindableAttributes(): Promise<BindableAttribute[]> {
+	const rows = await db.select({ claims: userSettings.claims }).from(userSettings);
+
+	const seen = new Set<string>();
+	for (const row of rows) for (const key of Object.keys(row.claims)) seen.add(key);
+
+	// Offered even before anyone has signed in, so a fresh install can be set up.
+	seen.add(ATTR.USER);
+	seen.add(ATTR.GROUPS);
+
+	const first: string[] = [ATTR.USER, ATTR.GROUPS];
+	const rest = [...seen].filter((k) => !first.includes(k)).sort();
+
+	const attributes: BindableAttribute[] = [];
+	for (const key of [...first, ...rest]) {
+		attributes.push({ key, freeform: true });
+		// Every real claim can also be matched on a leading fragment; the
+		// synthetic ones cannot, having no value space to walk.
+		if (!SYNTHETIC_ATTRIBUTES.includes(key)) {
+			attributes.push({ key: key + PREFIX_SUFFIX, freeform: true });
+		}
+	}
+	attributes.push({ key: ATTR.WILDCARD, freeform: false });
+
+	return attributes;
+}
 
 /** An authenticated identity: its login, its directory claims, and admin standing. */
 export interface Principal {

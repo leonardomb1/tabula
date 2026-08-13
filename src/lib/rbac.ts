@@ -1,6 +1,11 @@
 /**
  * The attribute vocabulary and matching predicate shared by the access gate and
  * the admin UI, so a rule editor cannot disagree with the enforcer.
+ *
+ * An attribute IS an ID token claim name. There is no fixed list: whatever the
+ * IdP maps into the token becomes bindable, so adding `department` to a property
+ * mapping is the whole change — no constant, no migration, no deploy. The two
+ * exceptions below are synthetic, because no claim can supply them.
  */
 
 export type Role = 'viewer' | 'editor' | 'maintainer';
@@ -9,31 +14,20 @@ export const RANK: Record<Role, number> = { viewer: 1, editor: 2, maintainer: 3 
 
 export const ROLES: Role[] = ['viewer', 'editor', 'maintainer'];
 
-/** Bindable directory attributes: sAMAccountName, memberOf, cost centre, everyone. */
 export const ATTR = {
+	/** Synthetic: the resolved username, whichever claim it was read from. */
 	USER: 'user',
-	AD_GROUP: 'ad_group',
-	COST_CENTER: 'cost_center',
+	/** Not synthetic — the conventional OIDC claim — but named for admin checks. */
+	GROUPS: 'groups',
+	/** Synthetic: matches every signed-in principal. */
 	WILDCARD: '*'
 } as const;
 
+/** Attributes that name no claim, so they never appear in a token. */
+export const SYNTHETIC_ATTRIBUTES: string[] = [ATTR.USER, ATTR.WILDCARD];
+
 /** Suffix marking an attribute whose value matches the START of a claim value. */
 export const PREFIX_SUFFIX = '_prefix';
-
-export const ATTR_PREFIX = {
-	AD_GROUP: ATTR.AD_GROUP + PREFIX_SUFFIX,
-	COST_CENTER: ATTR.COST_CENTER + PREFIX_SUFFIX
-} as const;
-
-/** Attributes offered by the binding editor, with how each value is entered. */
-export const BINDABLE_ATTRIBUTES: { key: string; label: string; freeform: boolean }[] = [
-	{ key: ATTR.USER, label: 'Person (username)', freeform: true },
-	{ key: ATTR.AD_GROUP, label: 'AD group', freeform: true },
-	{ key: ATTR_PREFIX.AD_GROUP, label: 'AD group starting with…', freeform: true },
-	{ key: ATTR.COST_CENTER, label: 'Cost center code', freeform: true },
-	{ key: ATTR_PREFIX.COST_CENTER, label: 'Cost centers starting with…', freeform: true },
-	{ key: ATTR.WILDCARD, label: 'Everyone (any authenticated user)', freeform: false }
-];
 
 /** One membership or approval rule: which attribute to match, and on what value. */
 export interface Selector {

@@ -218,7 +218,7 @@ export const docTemplates = pgTable(
 
 /**
  * What someone chose to be called, plus the directory snapshot from their last
- * sign-in. Identity still comes from k-auth on every login; this is only so the app
+ * sign-in. Identity still comes from the IdP on every login; this is only so the app
  * can describe other people.
  */
 export const userSettings = pgTable('user_settings', {
@@ -230,7 +230,7 @@ export const userSettings = pgTable('user_settings', {
 	mail: text('mail'),
 	title: text('title'),
 	directoryName: text('directory_name'),
-	claims: jsonb('claims').notNull().default(sql`'{}'::jsonb`),
+	claims: jsonb('claims').$type<Record<string, string[]>>().notNull().default(sql`'{}'::jsonb`),
 	isPlatformAdmin: boolean('is_platform_admin').notNull().default(false),
 	lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
 
@@ -245,7 +245,7 @@ export const apiTokens = pgTable(
 		id: text('id').primaryKey(),
 		tokenHash: text('token_hash').notNull(),
 		username: text('username').notNull(),
-		claims: jsonb('claims').notNull().default(sql`'{}'::jsonb`),
+		claims: jsonb('claims').$type<Record<string, string[]>>().notNull().default(sql`'{}'::jsonb`),
 		isPlatformAdmin: boolean('is_platform_admin').notNull().default(false),
 		label: text('label').notNull().default(''),
 		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

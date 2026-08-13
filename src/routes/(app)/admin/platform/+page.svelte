@@ -1,24 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
+	import { attributeLabel } from '$lib/labels';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
 	let confirmDelete = $state<string | null>(null);
-
-	const attrLabel: Record<string, () => string> = {
-		user: m.attr_user,
-		ad_group: m.attr_ad_group,
-		ad_group_prefix: m.attr_ad_group_prefix,
-		cost_center: m.attr_cost_center,
-		cost_center_prefix: m.attr_cost_center_prefix,
-		'*': m.attr_wildcard
-	};
-
-	function label(map: Record<string, () => string>, key: string): string {
-		return map[key]?.() ?? key;
-	}
 
 	function seen(iso: string | null): string {
 		return iso ? new Date(iso).toLocaleDateString() : '—';
@@ -48,7 +36,7 @@
 			<ul class="rules">
 				{#each data.rules as r (r.id)}
 					<li>
-						<span class="rule-attr">{label(attrLabel, r.attribute)}</span>
+						<span class="rule-attr">{attributeLabel(r.attribute)}</span>
 						<code class="rule-value">{r.value}</code>
 						<form method="POST" action="?/removeRule" use:enhance>
 							<input type="hidden" name="id" value={r.id} />
@@ -67,7 +55,7 @@
 			<select name="attribute" class="attr" aria-label={m.admin_attribute()}>
 				<button><selectedcontent></selectedcontent></button>
 				{#each data.attributes as a (a.key)}
-					<option value={a.key}>{label(attrLabel, a.key)}</option>
+					<option value={a.key}>{attributeLabel(a.key)}</option>
 				{/each}
 			</select>
 			<input name="value" placeholder={m.admin_value()} autocomplete="off" />

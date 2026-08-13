@@ -1,61 +1,47 @@
-import { fail, redirect, type Actions } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import { SESSION_COOKIE, cookieOptions, issueToken, login } from '$lib/server/auth';
-import { recordDirectorySnapshot } from '$lib/server/userSettings';
-import { throttled } from '$lib/server/throttle';
-import { ensureWorkspace } from '$lib/server/workspaces';
-import { personalWorkspaceId } from '$lib/server/ids';
+import {
+	OIDC_FLOW_COOKIE,
+	callbackUri,
+	flowCookieOptions,
+	packFlow,
+	safeRedirect
+} from '$lib/server/auth';
+import { authorizeUrl } from '$lib/server/auth/oidc';
 import type { PageServerLoad } from './$types';
 
-function safeRedirect(target: string | null): string {
-	return target && target.startsWith('/') && !target.startsWith('//') ? target : '/';
+/** Callback failures come back as `?error=`; everything else starts a new flow. */
+function denialMessage(code: string): string {
+	switch (code) {
+		case 'not_allowed':
+		case 'blocked':
+			return m.login_error_not_allowed();
+		case 'interrupted':
+			return m.login_error_interrupted();
+		default:
+			return m.login_error_unavailable();
+	}
 }
 
-export const load: PageServerLoad = async ({ locals, url }) => {
-	if (locals.user) redirect(303, safeRedirect(url.searchParams.get('redirectTo')));
-	return {};
-};
+export const load: PageServerLoad = async ({ locals, url, cookies }) => {
+	const redirectTo = safeRedirect(url.searchParams.get('redirectTo'));
+	if (locals.user) redirect(303, redirectTo);
 
-export const actions: Actions = {
-	default: async ({ request, cookies, url, getClientAddress }) => {
-		const data = await request.formData();
-		const identifier = String(data.get('identifier') ?? '').trim();
-		const password = String(data.get('password') ?? '');
+	const denial = url.searchParams.get('error');
+	if (denial) return { error: denialMessage(denial), retryTo: redirectTo };
 
-		if (!identifier || !password) {
-			return fail(400, { error: m.login_error_required(), identifier });
-		}
-		if (throttled(`login:${identifier.toLowerCase()}:${getClientAddress()}`)) {
-			return fail(429, { error: m.login_error_throttled(), identifier });
-		}
-
-		let result;
-		try {
-			result = await login(identifier, password);
-		} catch {
-			return fail(503, { error: m.login_error_unavailable(), identifier });
-		}
-
-		if (!result.ok) {
-			const message =
-				result.reason === 'locked'
-					? m.login_error_locked()
-					: result.reason === 'disabled'
-						? m.login_error_disabled()
-						: result.reason === 'blocked' || result.reason === 'not_allowed'
-							? m.login_error_not_allowed()
-							: m.login_error_invalid();
-			return fail(result.reason === 'invalid' ? 401 : 403, { error: message, identifier });
-		}
-
-		await recordDirectorySnapshot(result.user).catch(() => {});
-		await ensureWorkspace(
-			personalWorkspaceId(result.user.username),
-			result.user.displayName ?? result.user.username,
-			'personal'
-		).catch(() => {});
-
-		cookies.set(SESSION_COOKIE, issueToken(result.user), cookieOptions());
-		redirect(303, safeRedirect(url.searchParams.get('redirectTo')));
+	let start;
+	try {
+		start = await authorizeUrl(callbackUri(url));
+	} catch (err) {
+		console.error('oidc: could not build the authorize URL', err);
+		return { error: m.login_error_unavailable(), retryTo: redirectTo };
 	}
+
+	cookies.set(
+		OIDC_FLOW_COOKIE,
+		packFlow({ state: start.state, verifier: start.verifier, redirectTo }),
+		flowCookieOptions()
+	);
+	redirect(303, start.url);
 };

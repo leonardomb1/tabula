@@ -72,8 +72,12 @@ x-app: &app
     SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
     SESSION_HOURS: ${SESSION_HOURS:-8}
     COOKIE_SECURE: ${COOKIE_SECURE:-true}
-    KAUTH_URL: ${KAUTH_URL:-}
-    KAUTH_TOKEN: ${KAUTH_TOKEN:-}
+    OIDC_ISSUER: ${OIDC_ISSUER:?set OIDC_ISSUER in .env}
+    OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID in .env}
+    OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+    # Only when the IdP does not put the old sAMAccountName in preferred_username.
+    OIDC_USERNAME_CLAIM: ${OIDC_USERNAME_CLAIM:-}
+    OIDC_SCOPES: ${OIDC_SCOPES:-}
     PLATFORM_ADMIN_GROUPS: ${PLATFORM_ADMIN_GROUPS:-}
     PLATFORM_ADMIN_USERS: ${PLATFORM_ADMIN_USERS:-}
     # Wiki exposure: off | org (signed-in users) | anonymous (internet-facing).

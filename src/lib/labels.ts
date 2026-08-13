@@ -4,16 +4,37 @@
  */
 
 import * as m from '$lib/paraglide/messages';
+import { PREFIX_SUFFIX } from './rbac';
 import type { Capability } from './policy';
 
-export const attrLabel: Record<string, () => string> = {
+/**
+ * Only the two synthetic attributes and the group claim get written text. Every
+ * other attribute is a claim name chosen in the IdP, so it is humanized from the
+ * key instead — otherwise mapping a new claim would mean shipping translations
+ * before anyone could bind on it.
+ */
+const named: Record<string, () => string> = {
 	user: m.attr_user,
-	ad_group: m.attr_ad_group,
-	ad_group_prefix: m.attr_ad_group_prefix,
-	cost_center: m.attr_cost_center,
-	cost_center_prefix: m.attr_cost_center_prefix,
+	groups: m.attr_groups,
 	'*': m.attr_wildcard
 };
+
+function humanize(key: string): string {
+	const words = key.replace(/[._-]+/g, ' ').trim();
+	return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function attributeLabel(key: string): string {
+	const exact = named[key];
+	if (exact) return exact();
+
+	if (key.endsWith(PREFIX_SUFFIX)) {
+		const base = key.slice(0, -PREFIX_SUFFIX.length);
+		return m.attr_starts_with({ name: named[base]?.() ?? humanize(base) });
+	}
+
+	return humanize(key);
+}
 
 export const roleLabel: Record<string, () => string> = {
 	viewer: m.role_viewer,

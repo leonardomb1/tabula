@@ -20,7 +20,9 @@
 		policy: WorkspacePolicy;
 		bindings?: { attribute: string; value: string; role: string }[];
 		claims?: Record<string, string[]>;
-		attributes?: { key: string; label: string }[];
+		// Display text comes from attributeLabel, not the row: an attribute is a
+		// claim name, so most have no written label to carry.
+		attributes?: { key: string }[];
 		section: 'general' | 'access' | 'policy' | 'review';
 		saved?: boolean;
 	} = $props();

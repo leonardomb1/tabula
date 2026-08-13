@@ -53,8 +53,10 @@
 
 	async function signOut() {
 		open = false;
-		await fetch('/auth/logout', { method: 'POST' });
-		location.href = '/login';
+		const res = await fetch('/auth/logout', { method: 'POST' });
+		const body: { redirectTo?: string } = await res.json().catch(() => ({}));
+		// The server picks the target: the IdP's end-session page when it has one.
+		location.href = body.redirectTo ?? '/login';
 	}
 </script>
 

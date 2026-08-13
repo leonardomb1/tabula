@@ -1,6 +1,6 @@
-import { ATTR, type Principal } from '../access';
+import { ATTR, PREFIX_SUFFIX, type Principal } from '../access';
 import { gateVerdict } from '../gate';
-import { kauthAuthenticate, type KauthRejection, type KauthUser } from './kauth';
+import type { OidcClaims } from './oidc';
 import { signSession, verifySession, type SessionClaims } from './session';
 
 export interface SessionUser extends Principal {
@@ -13,6 +13,9 @@ export interface SessionUser extends Principal {
 }
 
 export const SESSION_COOKIE = 'tabula_session';
+
+/** Holds the in-flight PKCE exchange between the redirect out and the callback. */
+export const OIDC_FLOW_COOKIE = 'tabula_oidc';
 
 export { verifySession };
 export type { SessionClaims } from './session';
@@ -37,55 +40,117 @@ function adminUsers(): string[] {
 	return envList(process.env.PLATFORM_ADMIN_USERS);
 }
 
-// memberOf may carry bare names or full DNs; expose both so either form matches.
-function groupNames(memberOf: string[]): string[] {
-	const names = memberOf.map((g) => /^cn=([^,]+)/i.exec(g)?.[1] ?? g);
-	return [...new Set([...memberOf, ...names])];
+// Group claims may carry bare names or full DNs — a directory federated from AD
+// can emit either. Expose both forms so a binding written against either matches.
+function groupNames(groups: string[]): string[] {
+	const names = groups.map((g) => /^cn=([^,]+)/i.exec(g)?.[1] ?? g);
+	return [...new Set([...groups, ...names])];
 }
 
-function buildClaims(u: KauthUser): Record<string, string[]> {
-	const claims: Record<string, string[]> = {
-		[ATTR.USER]: [u.sAMAccountName],
-		[ATTR.AD_GROUP]: groupNames(u.memberOf ?? [])
-	};
-	const costCenter = u.additionalInfo?.costCenterCode;
-	if (typeof costCenter === 'string' && costCenter) {
-		claims[ATTR.COST_CENTER] = [costCenter];
+function claimText(c: OidcClaims, name: string): string | undefined {
+	const value = c[name];
+	return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function asList(value: OidcClaims[string]): string[] {
+	if (Array.isArray(value)) {
+		return value.filter((v): v is string => typeof v === 'string' && v.length > 0);
 	}
+	if (typeof value === 'string') return value ? [value] : [];
+	if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
+	// Nested objects have no sensible string form to match a binding against.
+	return [];
+}
+
+function claimList(c: OidcClaims, name: string): string[] {
+	return asList(c[name]);
+}
+
+/**
+ * Claims the token carries for the protocol rather than for us. Binding on them
+ * would be meaningless (`exp` differs every login) or a trap (`sub` is opaque,
+ * so a `sub` binding looks like a user binding and behaves nothing like one).
+ */
+const PROTOCOL_CLAIMS = new Set([
+	'acr',
+	'amr',
+	'at_hash',
+	'aud',
+	'auth_time',
+	'azp',
+	'c_hash',
+	'exp',
+	'iat',
+	'iss',
+	'jti',
+	'nbf',
+	'nonce',
+	's_hash',
+	'session_state',
+	'sid',
+	'sub',
+	'typ'
+]);
+
+/**
+ * Every claim the IdP sent becomes bindable, keyed by its own name. This is why
+ * mapping a new attribute in Authentik needs no change here.
+ */
+function buildClaims(c: OidcClaims, username: string): Record<string, string[]> {
+	const claims: Record<string, string[]> = { [ATTR.USER]: [username] };
+
+	for (const [name, value] of Object.entries(c)) {
+		if (PROTOCOL_CLAIMS.has(name) || name.endsWith(PREFIX_SUFFIX)) continue;
+
+		const values = name === ATTR.GROUPS ? groupNames(asList(value)) : asList(value);
+		if (values.length) claims[name] = values;
+	}
+
 	return claims;
 }
 
-export type LoginDenial = KauthRejection | 'blocked' | 'not_allowed';
+export type LoginDenial = 'blocked' | 'not_allowed';
 
-export type LoginResult =
-	| { ok: true; user: SessionUser }
-	| { ok: false; reason: LoginDenial; code: string };
+export type LoginResult = { ok: true; user: SessionUser } | { ok: false; reason: LoginDenial };
 
-export async function login(identifier: string, password: string): Promise<LoginResult> {
-	const result = await kauthAuthenticate(identifier, password);
-	if (!result.ok) return result;
-	const u = result.user;
+/**
+ * Map ID token claims into the principal the rest of the app speaks. Pure: the
+ * IdP already authenticated the person, this only translates vocabulary.
+ */
+export function principalFromClaims(c: OidcClaims): SessionUser {
+	const usernameClaim = process.env.OIDC_USERNAME_CLAIM ?? 'preferred_username';
+	const username = claimText(c, usernameClaim);
 
+	// Falling back to `sub` would mint an opaque UUID identity: a fresh personal
+	// workspace, no binding matches, no block match. Failing loudly is safer.
+	if (!username) {
+		throw new Error(`oidc: id_token carries no "${usernameClaim}" claim to use as the username`);
+	}
+
+	const groups = groupNames(claimList(c, ATTR.GROUPS));
 	const admin = new Set(adminGroups().map((g) => g.toLowerCase()));
-	const extra = u.additionalInfo ?? {};
-	const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
 
-	const user: SessionUser = {
-		username: u.sAMAccountName,
-		claims: buildClaims(u),
+	return {
+		username,
+		claims: buildClaims(c, username),
 		isPlatformAdmin:
-			adminUsers().some((n) => n.toLowerCase() === u.sAMAccountName.toLowerCase()) ||
-			groupNames(u.memberOf ?? []).some((g) => admin.has(g.toLowerCase())),
-		displayName: u.displayName,
-		mail: u.mail,
-		title: u.title,
-		employeeId: u.employeeID,
-		costCenterCode: str(extra.costCenterCode),
-		costCenterDescription: str(extra.costCenterDescription)
+			adminUsers().some((n) => n.toLowerCase() === username.toLowerCase()) ||
+			groups.some((g) => admin.has(g.toLowerCase())),
+		displayName: claimText(c, 'name'),
+		mail: claimText(c, 'email'),
+		title: claimText(c, 'title'),
+		employeeId: claimText(c, 'employee_id'),
+		costCenterCode: claimText(c, 'cost_center'),
+		costCenterDescription: claimText(c, 'cost_center_description')
 	};
+}
+
+/** The mapping above, then the local admit/deny. */
+export async function sessionFor(c: OidcClaims): Promise<LoginResult> {
+	const user = principalFromClaims(c);
 
 	const verdict = await gateVerdict(user);
-	if (verdict !== 'ok') return { ok: false, reason: verdict, code: verdict };
+	if (verdict !== 'ok') return { ok: false, reason: verdict };
 
 	return { ok: true, user };
 }
@@ -103,7 +168,20 @@ export function issueToken(user: SessionUser): string {
 		costCenterDescription: user.costCenterDescription,
 		exp: Math.floor(Date.now() / 1000) + sessionTtlSeconds()
 	};
-	return signSession(claims);
+
+	const token = signSession(claims);
+
+	// Claims are open-ended now, so a generous property mapping can outgrow the
+	// ~4 KB a browser will store. An oversized cookie is dropped silently and
+	// reads as an endless bounce back to /login — fail where we can say why.
+	if (token.length > 3800) {
+		throw new Error(
+			`oidc: the session cookie would be ${token.length} bytes, past what browsers keep. ` +
+				'Map fewer claims into the id_token.'
+		);
+	}
+
+	return token;
 }
 
 export function userFromClaims(c: SessionClaims): SessionUser {
@@ -120,15 +198,67 @@ export function userFromClaims(c: SessionClaims): SessionUser {
 	};
 }
 
-export function cookieOptions() {
-	const secure = process.env.COOKIE_SECURE
+function secureCookies(): boolean {
+	return process.env.COOKIE_SECURE
 		? process.env.COOKIE_SECURE === 'true'
 		: (process.env.ORIGIN?.startsWith('https://') ?? false);
+}
+
+export function cookieOptions() {
 	return {
 		path: '/',
 		httpOnly: true,
 		sameSite: 'lax' as const,
-		secure,
+		secure: secureCookies(),
 		maxAge: sessionTtlSeconds()
 	};
+}
+
+/**
+ * `lax`, not `strict`: the callback arrives as a top-level GET navigation from
+ * the IdP, and a strict cookie would not be sent with it.
+ */
+export function flowCookieOptions() {
+	return {
+		path: '/',
+		httpOnly: true,
+		sameSite: 'lax' as const,
+		secure: secureCookies(),
+		maxAge: 600
+	};
+}
+
+export interface OidcFlow {
+	state: string;
+	verifier: string;
+	redirectTo: string;
+}
+
+export function packFlow(flow: OidcFlow): string {
+	return Buffer.from(JSON.stringify(flow)).toString('base64url');
+}
+
+/**
+ * Unsigned on purpose: the cookie is httpOnly and its only job is to be compared
+ * against the state the IdP echoes back, so forging it gains nothing an attacker
+ * could not get by starting their own flow.
+ */
+export function unpackFlow(value: string | undefined): OidcFlow | null {
+	if (!value) return null;
+	try {
+		const flow: OidcFlow = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+		if (typeof flow.state !== 'string' || typeof flow.verifier !== 'string') return null;
+		return flow;
+	} catch {
+		return null;
+	}
+}
+
+export function callbackUri(url: URL): string {
+	return new URL('/auth/callback', url.origin).toString();
+}
+
+/** Only same-origin absolute paths survive, so a redirect cannot leave the app. */
+export function safeRedirect(target: string | null | undefined): string {
+	return target && target.startsWith('/') && !target.startsWith('//') ? target : '/';
 }

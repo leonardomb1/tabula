@@ -1,6 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import { requireUser } from '$lib/server/apiGuards';
-import { ATTR, BINDABLE_ATTRIBUTES } from '$lib/server/access';
+import { ATTR, bindableAttributes } from '$lib/server/access';
 import {
 	addGateRule,
 	blockUser,
@@ -38,7 +38,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		rules: rules.map((r) => ({ id: r.id, attribute: r.attribute, value: r.value })),
 		users: users.map((u) => ({ ...u, lastSeenAt: u.lastSeenAt?.toISOString() ?? null })),
-		attributes: BINDABLE_ATTRIBUTES,
+		attributes: await bindableAttributes(),
 		you: user.username,
 		published: published.map((d) => ({
 			id: d.id,

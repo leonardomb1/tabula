@@ -6,7 +6,7 @@
 	import { enhance } from '$app/forms';
 	import * as m from '$lib/paraglide/messages';
 	import PolicyEditor from '$lib/components/PolicyEditor.svelte';
-	import { attrLabel, label, roleLabel } from '$lib/labels';
+	import { attributeLabel, label, roleLabel } from '$lib/labels';
 	import { policyIsActive } from '$lib/policy';
 	import { matchesSelector, type Selector } from '$lib/rbac';
 	import type { PageProps } from './$types';
@@ -173,7 +173,7 @@
 							<ul class="rules">
 								{#each cur.bindings as b (b.id)}
 									<li>
-										<span class="rule-attr">{label(attrLabel, b.attribute)}</span>
+										<span class="rule-attr">{attributeLabel(b.attribute)}</span>
 										<code class="rule-value">{b.value}</code>
 										{#if matchesYou(b)}
 											<span class="badge">
@@ -206,7 +206,7 @@
 								<select name="attribute" class="attr" aria-label={m.admin_attribute()}>
 									<button><selectedcontent></selectedcontent></button>
 									{#each data.attributes as a (a.key)}
-										<option value={a.key}>{label(attrLabel, a.key)}</option>
+										<option value={a.key}>{attributeLabel(a.key)}</option>
 									{/each}
 								</select>
 								<input name="value" placeholder={m.admin_value()} autocomplete="off" />

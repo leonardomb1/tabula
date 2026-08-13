@@ -1,9 +1,20 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { cookieOptions, SESSION_COOKIE } from '$lib/server/auth';
+import { endSessionUrl } from '$lib/server/auth/oidc';
 
-export const POST: RequestHandler = async ({ cookies }) => {
+/**
+ * Clearing our cookie only ends the local session — the IdP session would sign
+ * the user straight back in on the next visit to /login. So the response hands
+ * back where to go next: the provider's end-session endpoint when it has one.
+ */
+export const POST: RequestHandler = async ({ cookies, url }) => {
 	// Same attributes as the set: SvelteKit defaults deletes to Secure, which
 	// browsers drop over plain http, leaving the session cookie alive.
 	cookies.delete(SESSION_COOKIE, cookieOptions());
-	return json({ ok: true });
+
+	const redirectTo = await endSessionUrl(new URL('/login', url.origin).toString()).catch(
+		() => null
+	);
+
+	return json({ ok: true, redirectTo: redirectTo ?? '/login' });
 };

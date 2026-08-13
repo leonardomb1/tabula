@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { requireUser } from '$lib/server/apiGuards';
-import { ATTR, BINDABLE_ATTRIBUTES, ROLES, type Role } from '$lib/server/access';
+import { ATTR, bindableAttributes, ROLES, type Role } from '$lib/server/access';
 import { sanitizePolicy } from '$lib/policy';
 import {
 	createWorkspace,
@@ -79,7 +79,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						)
 				}
 			: null,
-		attributes: BINDABLE_ATTRIBUTES,
+		attributes: await bindableAttributes(),
 		you: { username: user.username, claims: user.claims }
 	};
 };
