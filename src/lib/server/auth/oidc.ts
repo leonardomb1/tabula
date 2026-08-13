@@ -72,7 +72,23 @@ export interface AuthStart {
 	verifier: string;
 }
 
-export async function authorizeUrl(redirectUri: string): Promise<AuthStart> {
+export interface AuthorizeOptions {
+	/**
+	 * Ask the IdP to re-authenticate even when it already has a session.
+	 *
+	 * Signing out of Tabula ends only our session — the IdP session outlives it
+	 * on purpose, so other applications stay signed in. The cost is that the
+	 * next sign-in is answered silently, which reads as "logout did nothing".
+	 * Sending `prompt=login` from the post-logout page buys back the credential
+	 * screen for that one request without touching the IdP session itself.
+	 */
+	forceLogin?: boolean;
+}
+
+export async function authorizeUrl(
+	redirectUri: string,
+	options: AuthorizeOptions = {}
+): Promise<AuthStart> {
 	const { authorization_endpoint } = await discover();
 
 	const state = randomBytes(32).toString('base64url');
@@ -87,6 +103,7 @@ export async function authorizeUrl(redirectUri: string): Promise<AuthStart> {
 	url.searchParams.set('state', state);
 	url.searchParams.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
 	url.searchParams.set('code_challenge_method', 'S256');
+	if (options.forceLogin) url.searchParams.set('prompt', 'login');
 
 	return { url: url.toString(), state, verifier };
 }

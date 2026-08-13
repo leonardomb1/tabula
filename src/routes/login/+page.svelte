@@ -9,8 +9,14 @@
 
 	const branding = $derived(data.branding);
 	const showLogo = $derived(!!branding.logoUrl && !logoFailed);
-	// Reached only when a flow failed: the happy path redirects out of this load.
-	const retryHref = $derived(`/login?redirectTo=${encodeURIComponent(data.retryTo ?? '/')}`);
+	// Reached when a flow failed, or after signing out; the happy path redirects
+	// out of this load. After a sign-out we ask the IdP to re-authenticate:
+	// its session outlives ours by design, so without this the button would be
+	// answered silently and look like the sign-out never happened.
+	const retryHref = $derived(
+		`/login?redirectTo=${encodeURIComponent(data.retryTo ?? '/')}` +
+			(data.notice ? '&prompt=login' : '')
+	);
 </script>
 
 <svelte:head>

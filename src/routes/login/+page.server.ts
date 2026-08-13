@@ -40,9 +40,14 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
 		return { error: null, notice: m.login_signed_out(), retryTo: redirectTo };
 	}
 
+	// Only the sign-in button on the post-logout page sets this, so ordinary
+	// visits keep the silent SSO hand-off; a deliberate sign-out is followed by
+	// a deliberate sign-in.
+	const forceLogin = url.searchParams.get('prompt') === 'login';
+
 	let start;
 	try {
-		start = await authorizeUrl(callbackUri(url));
+		start = await authorizeUrl(callbackUri(url), { forceLogin });
 	} catch (err) {
 		console.error('oidc: could not build the authorize URL', err);
 		return { error: m.login_error_unavailable(), notice: null, retryTo: redirectTo };
