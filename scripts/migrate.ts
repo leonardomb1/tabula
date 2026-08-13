@@ -15,7 +15,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import postgres from 'postgres';
 
-const DIR = process.env.MIGRATIONS_DIR ?? 'drizzle';
+const DIR = process.env.MIGRATIONS_DIR || 'drizzle';
 const command = process.argv[2] ?? 'apply';
 
 const url = process.env.DATABASE_URL;

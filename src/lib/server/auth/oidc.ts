@@ -31,7 +31,7 @@ interface Discovery {
 	end_session_endpoint?: string;
 }
 
-const TIMEOUT_MS = Number(process.env.OIDC_TIMEOUT_MS ?? 10_000);
+const TIMEOUT_MS = Number(process.env.OIDC_TIMEOUT_MS || 10_000);
 
 function required(name: string): string {
 	const value = process.env[name];
@@ -83,7 +83,7 @@ export async function authorizeUrl(redirectUri: string): Promise<AuthStart> {
 	url.searchParams.set('client_id', required('OIDC_CLIENT_ID'));
 	url.searchParams.set('redirect_uri', redirectUri);
 	// `groups` is Authentik's built-in scope for the group claim RBAC binds on.
-	url.searchParams.set('scope', process.env.OIDC_SCOPES ?? 'openid profile email groups');
+	url.searchParams.set('scope', process.env.OIDC_SCOPES || 'openid profile email groups');
 	url.searchParams.set('state', state);
 	url.searchParams.set('code_challenge', createHash('sha256').update(verifier).digest('base64url'));
 	url.searchParams.set('code_challenge_method', 'S256');

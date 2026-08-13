@@ -33,7 +33,7 @@ import { personalWorkspaceId, slugify } from '../ids';
  * reaches tabula on.
  */
 function origin(): string {
-	return (process.env.ORIGIN ?? 'http://localhost:3000').replace(/\/+$/, '');
+	return (process.env.ORIGIN || 'http://localhost:3000').replace(/\/+$/, '');
 }
 
 type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean };

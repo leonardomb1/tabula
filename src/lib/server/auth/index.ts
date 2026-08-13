@@ -21,7 +21,7 @@ export { verifySession };
 export type { SessionClaims } from './session';
 
 function sessionTtlSeconds(): number {
-	const hours = Number(process.env.SESSION_HOURS ?? '8');
+	const hours = Number(process.env.SESSION_HOURS || '8');
 	return (Number.isFinite(hours) && hours > 0 ? hours : 8) * 3600;
 }
 
@@ -118,7 +118,7 @@ export type LoginResult = { ok: true; user: SessionUser } | { ok: false; reason:
  * IdP already authenticated the person, this only translates vocabulary.
  */
 export function principalFromClaims(c: OidcClaims): SessionUser {
-	const usernameClaim = process.env.OIDC_USERNAME_CLAIM ?? 'preferred_username';
+	const usernameClaim = process.env.OIDC_USERNAME_CLAIM || 'preferred_username';
 	const username = claimText(c, usernameClaim);
 
 	// Falling back to `sub` would mint an opaque UUID identity: a fresh personal

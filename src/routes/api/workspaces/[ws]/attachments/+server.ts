@@ -2,7 +2,7 @@ import { json, error, type RequestHandler } from '@sveltejs/kit';
 import { requireRole } from '$lib/server/apiGuards';
 import { attachmentUrl, createAttachment } from '$lib/server/attachments';
 
-const MAX_BYTES = Number(process.env.BODY_SIZE_LIMIT ?? 33554432);
+const MAX_BYTES = Number(process.env.BODY_SIZE_LIMIT || 33554432);
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {
 	const { user } = requireRole(locals, params.ws ?? '', 'editor');

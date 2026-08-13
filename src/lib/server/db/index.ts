@@ -25,9 +25,9 @@ function connect(): Db {
 	const pooled = process.env.PGBOUNCER === 'true';
 	const client = postgres(url, {
 		prepare: !pooled,
-		max: Number(process.env.DATABASE_POOL_MAX ?? 10),
-		idle_timeout: Number(process.env.DATABASE_IDLE_TIMEOUT ?? 30),
-		connect_timeout: Number(process.env.DATABASE_CONNECT_TIMEOUT ?? 10),
+		max: Number(process.env.DATABASE_POOL_MAX || 10),
+		idle_timeout: Number(process.env.DATABASE_IDLE_TIMEOUT || 30),
+		connect_timeout: Number(process.env.DATABASE_CONNECT_TIMEOUT || 10),
 		onnotice: (notice) => {
 			if (notice.routine === 'cleanup_tsquery_stopwords') return;
 			console.warn(`postgres ${notice.severity}: ${notice.message}`);

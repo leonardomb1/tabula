@@ -8,14 +8,14 @@ let workspace: string | null = null;
 
 export function workspaceRoot(): string {
 	if (!workspace) {
-		workspace = process.env.TYPST_WORKSPACE ?? path.join(os.tmpdir(), 'tabula-typst-root');
+		workspace = process.env.TYPST_WORKSPACE || path.join(os.tmpdir(), 'tabula-typst-root');
 		mkdirSync(workspace, { recursive: true });
 	}
 	return workspace;
 }
 
 function buildArgs(): CompileArgs {
-	const fontPaths = (process.env.TYPST_FONTS_PATH ?? '')
+	const fontPaths = (process.env.TYPST_FONTS_PATH || '')
 		.split(path.delimiter)
 		.map((p) => p.trim())
 		.filter(Boolean);
