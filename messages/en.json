@@ -5,6 +5,7 @@
 	"login_submit": "Sign in",
 	"login_error_unavailable": "The sign-in service is unavailable. Please try again shortly.",
 	"login_error_interrupted": "Sign-in didn't complete. Please try again.",
+	"login_signed_out": "You've been signed out.",
 	"signout": "Sign out",
 	"publish_button": "Publish",
 	"publish_heading": "Publication",

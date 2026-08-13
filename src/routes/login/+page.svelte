@@ -37,6 +37,8 @@
 
 		{#if data.error}
 			<p class="error" role="alert">{data.error}</p>
+		{:else if data.notice}
+			<p class="notice" role="status">{data.notice}</p>
 		{/if}
 
 		<a class="submit" href={retryHref} data-sveltekit-reload>{m.login_submit()}</a>
@@ -95,6 +97,18 @@
 		border-radius: 8px;
 		background: var(--danger-wash);
 		color: var(--danger);
+		font-size: 0.875rem;
+	}
+
+	/* Signing out is a normal outcome, not a failure — same shape as .error but
+	   without the danger colouring. */
+	.notice {
+		margin: 0 0 1.25rem;
+		padding: 0.7rem 0.85rem;
+		border-radius: 8px;
+		background: var(--surface-muted, var(--surface));
+		border: 1px solid var(--border);
+		color: var(--text-muted);
 		font-size: 0.875rem;
 	}
 

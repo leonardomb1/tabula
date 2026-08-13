@@ -5,6 +5,7 @@
 	"login_submit": "Entrar",
 	"login_error_unavailable": "O serviço de autenticação está indisponível. Tente novamente em instantes.",
 	"login_error_interrupted": "O login não foi concluído. Tente novamente.",
+	"login_signed_out": "Você saiu da sua conta.",
 	"signout": "Sair",
 	"publish_button": "Publicar",
 	"publish_heading": "Publicação",

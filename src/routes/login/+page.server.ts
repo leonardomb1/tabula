@@ -28,14 +28,24 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
 	if (locals.user) redirect(303, redirectTo);
 
 	const denial = url.searchParams.get('error');
-	if (denial) return { error: denialMessage(denial), retryTo: redirectTo };
+	if (denial) {
+		return { error: denialMessage(denial), notice: null, retryTo: redirectTo };
+	}
+
+	// Arriving straight from logout must NOT start a new flow. The IdP session
+	// deliberately outlives ours — signing out of Tabula is not signing out of
+	// everything — so an automatic redirect here would be answered silently and
+	// land the user right back where they started.
+	if (url.searchParams.has('signedout')) {
+		return { error: null, notice: m.login_signed_out(), retryTo: redirectTo };
+	}
 
 	let start;
 	try {
 		start = await authorizeUrl(callbackUri(url));
 	} catch (err) {
 		console.error('oidc: could not build the authorize URL', err);
-		return { error: m.login_error_unavailable(), retryTo: redirectTo };
+		return { error: m.login_error_unavailable(), notice: null, retryTo: redirectTo };
 	}
 
 	cookies.set(

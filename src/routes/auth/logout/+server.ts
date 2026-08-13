@@ -17,10 +17,11 @@ export const POST: RequestHandler = async ({ cookies, url }) => {
 	cookies.delete(SESSION_COOKIE, cookieOptions());
 	cookies.delete(ID_TOKEN_COOKIE, cookieOptions());
 
-	const redirectTo = await endSessionUrl(
-		new URL('/login', url.origin).toString(),
-		idTokenHint
-	).catch(() => null);
+	// `?signedout` stops /login from immediately starting a new flow. Without it
+	// the still-valid IdP session answers silently and the user is signed back
+	// in — logging out of Tabula deliberately does not log them out of the IdP.
+	const signedOut = new URL('/login?signedout', url.origin).toString();
+	const redirectTo = await endSessionUrl(signedOut, idTokenHint).catch(() => null);
 
-	return json({ ok: true, redirectTo: redirectTo ?? '/login' });
+	return json({ ok: true, redirectTo: redirectTo ?? '/login?signedout' });
 };
