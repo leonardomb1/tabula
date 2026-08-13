@@ -91,11 +91,22 @@ export async function authorizeUrl(redirectUri: string): Promise<AuthStart> {
 	return { url: url.toString(), state, verifier };
 }
 
+/**
+ * The decoded claims plus the raw token. The raw form is kept because
+ * RP-initiated logout has to hand it back as `id_token_hint` — authentik
+ * rejects an end-session request that carries a `post_logout_redirect_uri`
+ * without one (OIDC certification reading; `client_id` does not substitute).
+ */
+export interface ExchangedToken {
+	claims: OidcClaims;
+	idToken: string;
+}
+
 export async function exchange(
 	code: string,
 	verifier: string,
 	redirectUri: string
-): Promise<OidcClaims> {
+): Promise<ExchangedToken> {
 	const { token_endpoint } = await discover();
 
 	const body = new URLSearchParams({
@@ -124,7 +135,7 @@ export async function exchange(
 	const token: { id_token?: string } = await res.json();
 	if (!token.id_token) throw new Error('oidc: token response carried no id_token');
 
-	return decodeIdToken(token.id_token);
+	return { claims: decodeIdToken(token.id_token), idToken: token.id_token };
 }
 
 /** Payload only — see the file header for why the signature is not checked. */
@@ -140,17 +151,31 @@ export function decodeIdToken(idToken: string): OidcClaims {
 }
 
 /**
- * RP-initiated logout, without an `id_token_hint` — we do not keep the raw ID
- * token around after login, so the IdP asks the user to confirm. Null when the
- * provider advertises no end-session endpoint, in which case clearing our own
- * cookie is all logout can mean.
+ * RP-initiated logout. `idTokenHint` is the raw ID token from login: authentik
+ * (and any OP following the OIDC certification reading) refuses a request that
+ * carries a `post_logout_redirect_uri` without it, so the redirect is only
+ * asked for when we can prove which session is being ended. Providers accept a
+ * hint whose token has already expired — logout arriving after expiry is still
+ * legitimate — so a hint stored for the life of the session stays usable.
+ *
+ * Without a hint we still end the IdP session, just without the round trip
+ * back: the OP lands the user on its own logged-out page instead.
+ *
+ * Null when the provider advertises no end-session endpoint, in which case
+ * clearing our own cookie is all logout can mean.
  */
-export async function endSessionUrl(postLogoutRedirectUri: string): Promise<string | null> {
+export async function endSessionUrl(
+	postLogoutRedirectUri: string,
+	idTokenHint?: string
+): Promise<string | null> {
 	const { end_session_endpoint } = await discover();
 	if (!end_session_endpoint) return null;
 
 	const url = new URL(end_session_endpoint);
 	url.searchParams.set('client_id', required('OIDC_CLIENT_ID'));
-	url.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+	if (idTokenHint) {
+		url.searchParams.set('id_token_hint', idTokenHint);
+		url.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+	}
 	return url.toString();
 }

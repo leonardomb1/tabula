@@ -1,5 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { cookieOptions, SESSION_COOKIE } from '$lib/server/auth';
+import { cookieOptions, ID_TOKEN_COOKIE, SESSION_COOKIE } from '$lib/server/auth';
 import { endSessionUrl } from '$lib/server/auth/oidc';
 
 /**
@@ -8,13 +8,19 @@ import { endSessionUrl } from '$lib/server/auth/oidc';
  * back where to go next: the provider's end-session endpoint when it has one.
  */
 export const POST: RequestHandler = async ({ cookies, url }) => {
+	// Read before deleting: the IdP needs it as `id_token_hint` to accept our
+	// post-logout redirect.
+	const idTokenHint = cookies.get(ID_TOKEN_COOKIE);
+
 	// Same attributes as the set: SvelteKit defaults deletes to Secure, which
 	// browsers drop over plain http, leaving the session cookie alive.
 	cookies.delete(SESSION_COOKIE, cookieOptions());
+	cookies.delete(ID_TOKEN_COOKIE, cookieOptions());
 
-	const redirectTo = await endSessionUrl(new URL('/login', url.origin).toString()).catch(
-		() => null
-	);
+	const redirectTo = await endSessionUrl(
+		new URL('/login', url.origin).toString(),
+		idTokenHint
+	).catch(() => null);
 
 	return json({ ok: true, redirectTo: redirectTo ?? '/login' });
 };

@@ -17,6 +17,14 @@ export const SESSION_COOKIE = 'tabula_session';
 /** Holds the in-flight PKCE exchange between the redirect out and the callback. */
 export const OIDC_FLOW_COOKIE = 'tabula_oidc';
 
+/**
+ * The raw ID token from login, kept only so logout can pass it back as
+ * `id_token_hint`. Separate from the session cookie so the ~1 KB token does not
+ * ride along on every request, and so session encoding stays untouched. Shares
+ * the session's attributes and lifetime.
+ */
+export const ID_TOKEN_COOKIE = 'tabula_idt';
+
 export { verifySession };
 export type { SessionClaims } from './session';
 

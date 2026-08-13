@@ -1,5 +1,6 @@
 import { redirect, type RequestHandler } from '@sveltejs/kit';
 import {
+	ID_TOKEN_COOKIE,
 	OIDC_FLOW_COOKIE,
 	SESSION_COOKIE,
 	callbackUri,
@@ -37,11 +38,13 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 		redirect(303, '/login?error=interrupted');
 	}
 
-	const claims = await exchange(code, flow.verifier, callbackUri(url)).catch((err) => {
+	const exchanged = await exchange(code, flow.verifier, callbackUri(url)).catch((err) => {
 		console.error('oidc: code exchange failed', err);
 		return null;
 	});
-	if (!claims) redirect(303, '/login?error=unavailable');
+	if (!exchanged) redirect(303, '/login?error=unavailable');
+
+	const { claims, idToken } = exchanged;
 
 	const result = await sessionFor(claims).catch((err) => {
 		console.error('oidc: could not build a session from the id_token', err);
@@ -59,5 +62,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	).catch(() => {});
 
 	cookies.set(SESSION_COOKIE, issueToken(user), cookieOptions());
+	// Kept for logout's `id_token_hint`; see ID_TOKEN_COOKIE.
+	cookies.set(ID_TOKEN_COOKIE, idToken, cookieOptions());
 	redirect(303, safeRedirect(flow.redirectTo));
 };
