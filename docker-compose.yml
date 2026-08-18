@@ -72,12 +72,27 @@ x-app: &app
     SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
     SESSION_HOURS: ${SESSION_HOURS:-8}
     COOKIE_SECURE: ${COOKIE_SECURE:-true}
-    OIDC_ISSUER: ${OIDC_ISSUER:?set OIDC_ISSUER in .env}
-    OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID in .env}
+    # Sign-in: OIDC (SSO), LDAPS (username + password), or both. At least one
+    # must be set or /login has nothing to offer.
+    OIDC_ISSUER: ${OIDC_ISSUER:-}
+    OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
     OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
     # Only when the IdP does not put the old sAMAccountName in preferred_username.
     OIDC_USERNAME_CLAIM: ${OIDC_USERNAME_CLAIM:-}
     OIDC_SCOPES: ${OIDC_SCOPES:-}
+    LDAP_URL: ${LDAP_URL:-}
+    LDAP_BIND_DN: ${LDAP_BIND_DN:-}
+    LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+    LDAP_DOMAIN: ${LDAP_DOMAIN:-}
+    LDAP_BASE_DN: ${LDAP_BASE_DN:-}
+    LDAP_USER_FILTER: ${LDAP_USER_FILTER:-}
+    LDAP_USERNAME_ATTR: ${LDAP_USERNAME_ATTR:-}
+    LDAP_GROUP_ATTR: ${LDAP_GROUP_ATTR:-}
+    LDAP_NESTED_GROUPS: ${LDAP_NESTED_GROUPS:-}
+    LDAP_CLAIMS: ${LDAP_CLAIMS:-}
+    LDAP_CA_CERT: ${LDAP_CA_CERT:-}
+    LDAP_TLS_REJECT_UNAUTHORIZED: ${LDAP_TLS_REJECT_UNAUTHORIZED:-}
+    LDAP_TIMEOUT_MS: ${LDAP_TIMEOUT_MS:-}
     PLATFORM_ADMIN_GROUPS: ${PLATFORM_ADMIN_GROUPS:-}
     PLATFORM_ADMIN_USERS: ${PLATFORM_ADMIN_USERS:-}
     # Wiki exposure: off | org (signed-in users) | anonymous (internet-facing).

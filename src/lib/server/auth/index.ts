@@ -1,5 +1,6 @@
 import { ATTR, PREFIX_SUFFIX, type Principal } from '../access';
 import { gateVerdict } from '../gate';
+import { ldapAuthenticate, ldapConfigured, type LdapRejection } from './ldap';
 import type { OidcClaims } from './oidc';
 import { signSession, verifySession, type SessionClaims } from './session';
 
@@ -117,16 +118,25 @@ function buildClaims(c: OidcClaims, username: string): Record<string, string[]> 
 	return claims;
 }
 
-export type LoginDenial = 'blocked' | 'not_allowed';
+export type LoginDenial = 'blocked' | 'not_allowed' | LdapRejection;
 
 export type LoginResult = { ok: true; user: SessionUser } | { ok: false; reason: LoginDenial };
+
+/** Which doors are open. Both come from env, so a deployment picks either or both. */
+export function authMethods(): { ldap: boolean; oidc: boolean } {
+	return { ldap: ldapConfigured(), oidc: !!process.env.OIDC_ISSUER };
+}
 
 /**
  * Map ID token claims into the principal the rest of the app speaks. Pure: the
  * IdP already authenticated the person, this only translates vocabulary.
+ * `usernameClaim` defaults to the OIDC setting; the LDAP path always names its
+ * username `preferred_username`, whatever the IdP was told to call it.
  */
-export function principalFromClaims(c: OidcClaims): SessionUser {
-	const usernameClaim = process.env.OIDC_USERNAME_CLAIM || 'preferred_username';
+export function principalFromClaims(
+	c: OidcClaims,
+	usernameClaim = process.env.OIDC_USERNAME_CLAIM || 'preferred_username'
+): SessionUser {
 	const username = claimText(c, usernameClaim);
 
 	// Falling back to `sub` would mint an opaque UUID identity: a fresh personal
@@ -154,13 +164,23 @@ export function principalFromClaims(c: OidcClaims): SessionUser {
 }
 
 /** The mapping above, then the local admit/deny. */
-export async function sessionFor(c: OidcClaims): Promise<LoginResult> {
-	const user = principalFromClaims(c);
+export async function sessionFor(c: OidcClaims, usernameClaim?: string): Promise<LoginResult> {
+	const user = principalFromClaims(c, usernameClaim);
 
 	const verdict = await gateVerdict(user);
 	if (verdict !== 'ok') return { ok: false, reason: verdict };
 
 	return { ok: true, user };
+}
+
+/**
+ * Password sign-in: the directory verifies the credential, then the same
+ * mapping and gate the OIDC callback runs. Directory failures throw.
+ */
+export async function loginWithPassword(identifier: string, password: string): Promise<LoginResult> {
+	const result = await ldapAuthenticate(identifier, password);
+	if (!result.ok) return { ok: false, reason: result.reason };
+	return sessionFor(result.claims, 'preferred_username');
 }
 
 export function issueToken(user: SessionUser): string {
@@ -184,8 +204,8 @@ export function issueToken(user: SessionUser): string {
 	// reads as an endless bounce back to /login — fail where we can say why.
 	if (token.length > 3800) {
 		throw new Error(
-			`oidc: the session cookie would be ${token.length} bytes, past what browsers keep. ` +
-				'Map fewer claims into the id_token.'
+			`auth: the session cookie would be ${token.length} bytes, past what browsers keep. ` +
+				'Map fewer claims into the id_token, or fewer LDAP attributes and groups.'
 		);
 	}
 
