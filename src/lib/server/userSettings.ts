@@ -78,6 +78,18 @@ export async function recordDirectorySnapshot(user: {
 		.onConflictDoUpdate({ target: userSettings.username, set: snapshot });
 }
 
+/** The claims recorded at the last sign-in; null when nobody by that name has signed in. */
+export async function directoryClaimsFor(
+	username: string
+): Promise<Record<string, string[]> | null> {
+	const [row] = await db
+		.select({ claims: userSettings.claims })
+		.from(userSettings)
+		.where(eq(userSettings.username, username))
+		.limit(1);
+	return row ? (row.claims as Record<string, string[]>) : null;
+}
+
 /** The rows behind a set of usernames, in one query. */
 export async function directoryRowsFor(usernames: (string | null)[]) {
 	const wanted = [...new Set(usernames.filter((u): u is string => Boolean(u)))];

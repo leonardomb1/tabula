@@ -8,7 +8,15 @@
 import { expect, test, afterEach } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { ATTR } from '$lib/rbac';
-import { packFlow, principalFromClaims, safeRedirect, unpackFlow } from './index';
+import {
+	issueToken,
+	packFlow,
+	principalFromClaims,
+	safeRedirect,
+	unpackFlow,
+	userFromClaims,
+	verifySession
+} from './index';
 import { authorizeUrl, decodeIdToken } from './oidc';
 
 const ENV = { ...process.env };
@@ -154,4 +162,24 @@ test('redirect targets cannot leave the app', () => {
 	expect(safeRedirect('//evil.example')).toBe('/');
 	expect(safeRedirect('https://evil.example')).toBe('/');
 	expect(safeRedirect(null)).toBe('/');
+});
+
+test('the session cookie stays small however many groups the directory returns', () => {
+	process.env.SESSION_SECRET = 'test-secret';
+	const groups = Array.from(
+		{ length: 200 },
+		(_, i) => `CN=GG_Group_${i},OU=Groups,OU=Brazil,DC=MyKAEFER,DC=com`
+	);
+	const user = principalFromClaims({ sub: 'x', preferred_username: 'jdoe', name: 'J Doe', groups });
+	expect(user.claims[ATTR.GROUPS].length).toBe(400);
+
+	const token = issueToken(user);
+	expect(token.length).toBeLessThan(600);
+
+	const cookie = verifySession(token)!;
+	expect(cookie.claims).toBeUndefined();
+	// Per request the claims come back from the snapshot, not the cookie.
+	expect(userFromClaims(cookie, user.claims).claims[ATTR.GROUPS].length).toBe(400);
+	// Nothing recorded yet: the identity still resolves, with just the user claim.
+	expect(userFromClaims(cookie, null).claims).toEqual({ [ATTR.USER]: ['jdoe'] });
 });

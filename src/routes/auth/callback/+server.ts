@@ -54,7 +54,16 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	if (!result.ok) redirect(303, `/login?error=${result.reason}`);
 
 	const { user } = result;
-	await recordDirectorySnapshot(user).catch(() => {});
+	// The session cookie carries no claims; every request reads them from this
+	// snapshot, so a sign-in that could not record it must not proceed.
+	const recorded = await recordDirectorySnapshot(user).then(
+		() => true,
+		(err) => {
+			console.error('oidc: could not record the directory snapshot', err);
+			return false;
+		}
+	);
+	if (!recorded) redirect(303, '/login?error=unavailable');
 	await ensureWorkspace(
 		personalWorkspaceId(user.username),
 		user.displayName ?? user.username,

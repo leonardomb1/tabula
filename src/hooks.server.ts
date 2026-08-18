@@ -5,6 +5,7 @@ import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { cookieOptions, SESSION_COOKIE, userFromClaims, verifySession } from '$lib/server/auth';
 import { isBlocked } from '$lib/server/gate';
 import { loadAccess } from '$lib/server/access';
+import { directoryClaimsFor } from '$lib/server/userSettings';
 
 /**
  * Unexpected failures only. Thrown HTTP errors (`error(404, …)`) never reach here,
@@ -25,7 +26,9 @@ const originalHandle: Handle = async ({ event, resolve }) => {
 		const claims = verifySession(token);
 
 		if (claims && !(await isBlocked(claims.username))) {
-			const user = userFromClaims(claims);
+			// Claims come from the snapshot taken at sign-in, not the cookie: an
+			// AD group list is far bigger than a cookie may be.
+			const user = userFromClaims(claims, await directoryClaimsFor(claims.username));
 
 			event.locals.user = user;
 			event.locals.access = await loadAccess(user);

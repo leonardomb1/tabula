@@ -107,7 +107,14 @@ export const actions: Actions = {
 		}
 
 		const { user } = result;
-		await recordDirectorySnapshot(user).catch(() => {});
+		// The session cookie carries no claims; every request reads them from this
+		// snapshot, so a sign-in that could not record it must not proceed.
+		try {
+			await recordDirectorySnapshot(user);
+		} catch (err) {
+			console.error('login: could not record the directory snapshot', err);
+			return fail(503, { error: m.login_error_unavailable(), identifier });
+		}
 		await ensureWorkspace(
 			personalWorkspaceId(user.username),
 			user.displayName ?? user.username,

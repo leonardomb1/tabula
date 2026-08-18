@@ -186,7 +186,6 @@ export async function loginWithPassword(identifier: string, password: string): P
 export function issueToken(user: SessionUser): string {
 	const claims: SessionClaims = {
 		username: user.username,
-		claims: user.claims,
 		isPlatformAdmin: user.isPlatformAdmin,
 		displayName: user.displayName,
 		mail: user.mail,
@@ -199,23 +198,30 @@ export function issueToken(user: SessionUser): string {
 
 	const token = signSession(claims);
 
-	// Claims are open-ended now, so a generous property mapping can outgrow the
-	// ~4 KB a browser will store. An oversized cookie is dropped silently and
-	// reads as an endless bounce back to /login — fail where we can say why.
+	// Identity fields only, so this should never trip; if it does, an oversized
+	// cookie is dropped silently and reads as an endless bounce back to /login —
+	// fail where we can say why.
 	if (token.length > 3800) {
 		throw new Error(
-			`auth: the session cookie would be ${token.length} bytes, past what browsers keep. ` +
-				'Map fewer claims into the id_token, or fewer LDAP attributes and groups.'
+			`auth: the session cookie would be ${token.length} bytes, past what browsers keep.`
 		);
 	}
 
 	return token;
 }
 
-export function userFromClaims(c: SessionClaims): SessionUser {
+/**
+ * The principal for a request: identity from the cookie, claims from the
+ * directory snapshot taken at sign-in. A cookie issued before claims moved
+ * out of it still carries them, which covers the moment a snapshot is missing.
+ */
+export function userFromClaims(
+	c: SessionClaims,
+	claims: Record<string, string[]> | null | undefined = c.claims
+): SessionUser {
 	return {
 		username: c.username,
-		claims: c.claims,
+		claims: claims ?? c.claims ?? { [ATTR.USER]: [c.username] },
 		isPlatformAdmin: c.isPlatformAdmin,
 		displayName: c.displayName,
 		mail: c.mail,

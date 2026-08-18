@@ -1,8 +1,14 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
+/**
+ * What the cookie carries: identity and expiry only. Directory claims live in
+ * user_settings (written on every sign-in) and are loaded per request, because
+ * an AD group list turned inline pushed the cookie past what browsers store.
+ * `claims` is still read when present so sessions issued before this stay valid.
+ */
 export interface SessionClaims {
 	username: string;
-	claims: Record<string, string[]>;
+	claims?: Record<string, string[]>;
 	isPlatformAdmin: boolean;
 	displayName?: string;
 	mail?: string;
