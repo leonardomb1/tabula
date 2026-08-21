@@ -3,6 +3,7 @@ import { db } from './db';
 import { docLinks, docs, docVersions, type Doc, type DocVersion } from './db/schema';
 import { newDocId, slugify } from './ids';
 import { visibleDocs } from './visibility';
+import { kickSemanticIndexer } from './semantic';
 import { extractText } from './typst';
 import {
 	extractMarkdownText,
@@ -154,6 +155,13 @@ function frontmatterFor(
 	return mode === 'markdown' ? parseFrontmatter(source).data : {};
 }
 
+
+/** After-commit hook for the write paths: nudge the semantic indexer. */
+function indexAfterWrite<T>(doc: T): T {
+	kickSemanticIndexer();
+	return doc;
+}
+
 export async function createDoc(input: CreateDocInput): Promise<Doc> {
 	const id = newDocId();
 	const ephemeral = input.ephemeral ?? false;
@@ -202,7 +210,7 @@ export async function createDoc(input: CreateDocInput): Promise<Doc> {
 		}
 
 		return doc;
-	});
+	}).then(indexAfterWrite);
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -292,7 +300,7 @@ export async function updateDoc(
 		}
 
 		return doc;
-	});
+	}).then(indexAfterWrite);
 }
 
 /**
@@ -336,7 +344,7 @@ export async function promoteDoc(id: string, actor: string): Promise<Doc> {
 		}
 
 		return doc;
-	});
+	}).then(indexAfterWrite);
 }
 
 /**

@@ -5,6 +5,7 @@ import type { Handle, HandleServerError } from '@sveltejs/kit';
 import { cookieOptions, SESSION_COOKIE, userFromClaims, verifySession } from '$lib/server/auth';
 import { isBlocked } from '$lib/server/gate';
 import { loadAccess } from '$lib/server/access';
+import { ensureSemanticIndexer } from '$lib/server/semantic';
 import { directoryClaimsFor } from '$lib/server/userSettings';
 
 /**
@@ -20,6 +21,10 @@ export const handleError: HandleServerError = ({ error, event, status, message }
 };
 
 const originalHandle: Handle = async ({ event, resolve }) => {
+	// No init hook exists; first request starts the background indexer (no-op
+	// per request after that, and entirely absent without EMBEDDINGS_BASE_URL).
+	ensureSemanticIndexer();
+
 	const token = event.cookies.get(SESSION_COOKIE);
 
 	if (token) {

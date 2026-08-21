@@ -21,6 +21,13 @@ const tsvector = customType<{ data: string }>({
 	}
 });
 
+/** pgvector column. The dimension is part of the type — see 0006_semantic_chunks. */
+const vector1536 = customType<{ data: string }>({
+	dataType() {
+		return 'vector(1536)';
+	}
+});
+
 export const roleEnum = pgEnum('role', ['viewer', 'editor', 'maintainer']);
 export const docModeEnum = pgEnum('doc_mode', ['markdown', 'typst']);
 export const versionKindEnum = pgEnum('version_kind', ['edit', 'restore', 'delete']);
@@ -324,6 +331,33 @@ export const docViewDaily = pgTable(
 	(t) => [uniqueIndex('doc_view_daily_pk').on(t.docId, t.day, t.source)]
 );
 
+/**
+ * Embedded slices of a document, maintained by the background indexer
+ * ($lib/server/semantic) — never written on the request path. `rev` records the
+ * doc revision the chunks were cut from, which is the whole staleness protocol:
+ * chunks whose rev trails their doc's get replaced on the next indexer tick.
+ */
+export const docChunks = pgTable(
+	'doc_chunks',
+	{
+		id: serial('id').primaryKey(),
+		docId: text('doc_id')
+			.notNull()
+			.references(() => docs.id, { onDelete: 'cascade' }),
+		seq: integer('seq').notNull(),
+		rev: integer('rev').notNull(),
+		model: text('model').notNull(),
+		content: text('content').notNull(),
+		embedding: vector1536('embedding').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+	},
+	(t) => [
+		uniqueIndex('doc_chunks_doc_seq_uniq').on(t.docId, t.seq),
+		index('doc_chunks_doc_idx').on(t.docId)
+		// The HNSW index exists in SQL only (0006): drizzle has no hnsw builder.
+	]
+);
+
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceBinding = typeof workspaceBindings.$inferSelect;
 export type Doc = typeof docs.$inferSelect;
@@ -338,3 +372,4 @@ export type AccessRule = typeof accessRules.$inferSelect;
 export type BlockedUser = typeof blockedUsers.$inferSelect;
 export type DocReview = typeof docReviews.$inferSelect;
 export type DocReviewVote = typeof docReviewVotes.$inferSelect;
+export type DocChunk = typeof docChunks.$inferSelect;
