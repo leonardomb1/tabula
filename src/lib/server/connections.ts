@@ -138,30 +138,32 @@ export async function getRelatedDocs(
 	if (!embeddingsConfigured()) return [];
 	const model = embeddingsModel();
 	try {
+		// No alias on docs: visibleDocs qualifies its columns as "docs".
 		const rows = (await db.execute(sql`
 			with centroid as (
 				select avg(embedding) as emb
 				from doc_chunks
 				where doc_id = ${doc.id} and model = ${model}
 			)
-			select d.id, d.slug, d.title, d.workspace_id as "workspaceId",
-				d.is_public as "isPublic",
+			select docs.id, docs.slug, docs.title, docs.workspace_id as "workspaceId",
+				docs.is_public as "isPublic",
 				min(c.embedding <=> (select emb from centroid)) as dist,
 				round((1 - min(c.embedding <=> (select emb from centroid)))::numeric, 3)::float as similarity
 			from doc_chunks c
-			join docs d on d.id = c.doc_id
+			join docs on docs.id = c.doc_id
 			where c.model = ${model}
 				and c.doc_id <> ${doc.id}
-				and d.workspace_id = ${doc.workspaceId}
+				and docs.workspace_id = ${doc.workspaceId}
 				and ${visibleDocs}
 				and (select emb from centroid) is not null
-			group by d.id, d.slug, d.title, d.workspace_id, d.is_public
+			group by docs.id, docs.slug, docs.title, docs.workspace_id, docs.is_public
 			having min(c.embedding <=> (select emb from centroid)) < 0.65
 			order by dist asc
 			limit ${limit}
 		`)) as unknown as DocConnection[];
 		return rows;
-	} catch {
+	} catch (err) {
+		console.warn('related docs unavailable:', err instanceof Error ? err.message : err);
 		return [];
 	}
 }
