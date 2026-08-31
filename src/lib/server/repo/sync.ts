@@ -52,8 +52,14 @@ export interface SyncResult {
 const SYNC_ACTOR = 'repo-sync';
 const MAX_FILE_BYTES = 300_000;
 
+// Dot-directories are NOT excluded wholesale — real repos have legitimate ones
+// (e.g. ".Projetos Fluig"); only VCS/tooling internals and build output stay out.
 const EXCLUDED_DIRS = new Set([
 	'.git',
+	'.svn',
+	'.hg',
+	'.idea',
+	'.vscode',
 	'node_modules',
 	'dist',
 	'build',
@@ -104,6 +110,15 @@ function contentHash(content: string): string {
 	return createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
+/** Legacy corporate sources are often Windows-1252; fall back when not valid UTF-8. */
+function decodeText(buf: Buffer): string {
+	try {
+		return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+	} catch {
+		return new TextDecoder('windows-1252').decode(buf);
+	}
+}
+
 async function collectFiles(
 	root: string,
 	include: string[]
@@ -115,7 +130,7 @@ async function collectFiles(
 			const abs = path.join(dir, entry.name);
 			const rel = path.relative(root, abs).replaceAll(path.sep, '/');
 			if (entry.isDirectory()) {
-				if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.')) await walk(abs);
+				if (!EXCLUDED_DIRS.has(entry.name)) await walk(abs);
 				continue;
 			}
 			if (!entry.isFile()) continue;
@@ -139,7 +154,7 @@ async function collectFiles(
 				skipped.binary++;
 				continue;
 			}
-			files.set(rel, buf.toString('utf8'));
+			files.set(rel, decodeText(buf));
 		}
 	}
 	await walk(root);
