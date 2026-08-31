@@ -58,7 +58,8 @@ function repoView(cfg: RepoConfig | null) {
 		lastCommit: cfg?.lastCommit ?? '',
 		lastSyncAt: cfg?.lastSyncAt ?? '',
 		lastError: cfg?.lastError ?? null,
-		fileCount: cfg?.fileCount ?? 0
+		fileCount: cfg?.fileCount ?? 0,
+		skipped: cfg?.skipped ?? null
 	};
 }
 

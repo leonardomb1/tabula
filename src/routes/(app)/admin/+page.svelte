@@ -284,6 +284,24 @@
 							<dd><code>{cur.repo.lastCommit ? cur.repo.lastCommit.slice(0, 10) : '—'}</code></dd>
 							<dt>{m.repo_files()}</dt>
 							<dd>{cur.repo.fileCount}</dd>
+							{#if cur.repo.skipped}
+								{@const s = cur.repo.skipped}
+								{@const total = s.dotfile + s.excluded + s.oversized + s.binary}
+								{#if total > 0}
+									<dt>{m.repo_skipped()}</dt>
+									<dd>
+										{total}
+										<span class="hint-inline">
+											({m.repo_skipped_detail({
+												dotfile: s.dotfile,
+												excluded: s.excluded,
+												oversized: s.oversized,
+												binary: s.binary
+											})})
+										</span>
+									</dd>
+								{/if}
+							{/if}
 						</dl>
 						<form
 							method="POST"

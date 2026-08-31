@@ -179,6 +179,8 @@
 	"repo_never": "never",
 	"repo_readonly_note": "Documents in a repo workspace are read-only: they are overwritten by the next sync. Search, connections and the graph work as in any workspace.",
 	"repo_error_url": "Repository URL is required.",
+	"repo_skipped": "Skipped",
+	"repo_skipped_detail": "{dotfile} dotfiles, {excluded} excluded types, {oversized} over 300 KB, {binary} binary",
 	"history_title": "Version history",
 	"history_empty": "No versions recorded yet.",
 	"version_current": "Current",

@@ -179,6 +179,8 @@
 	"repo_never": "nunca",
 	"repo_readonly_note": "Documentos de um workspace de repositório são somente leitura: a próxima sincronização os sobrescreve. Busca, conexões e o grafo funcionam como em qualquer workspace.",
 	"repo_error_url": "Informe a URL do repositório.",
+	"repo_skipped": "Ignorados",
+	"repo_skipped_detail": "{dotfile} dotfiles, {excluded} tipos excluídos, {oversized} acima de 300 KB, {binary} binários",
 	"history_title": "Histórico de versões",
 	"history_empty": "Nenhuma versão registrada ainda.",
 	"version_current": "Atual",

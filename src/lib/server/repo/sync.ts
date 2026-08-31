@@ -29,6 +29,14 @@ export interface RepoConfig {
 	lastSyncAt?: string;
 	lastError?: string | null;
 	fileCount?: number;
+	skipped?: SkipCounts;
+}
+
+export interface SkipCounts {
+	dotfile: number;
+	excluded: number;
+	oversized: number;
+	binary: number;
 }
 
 export interface SyncResult {
@@ -38,6 +46,7 @@ export interface SyncResult {
 	updated: number;
 	deleted: number;
 	files: number;
+	skipped: SkipCounts;
 }
 
 const SYNC_ACTOR = 'repo-sync';
@@ -95,8 +104,12 @@ function contentHash(content: string): string {
 	return createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
-async function collectFiles(root: string, include: string[]): Promise<Map<string, string>> {
-	const out = new Map<string, string>();
+async function collectFiles(
+	root: string,
+	include: string[]
+): Promise<{ files: Map<string, string>; skipped: SkipCounts }> {
+	const files = new Map<string, string>();
+	const skipped: SkipCounts = { dotfile: 0, excluded: 0, oversized: 0, binary: 0 };
 	async function walk(dir: string) {
 		for (const entry of await readdir(dir, { withFileTypes: true })) {
 			const abs = path.join(dir, entry.name);
@@ -105,18 +118,32 @@ async function collectFiles(root: string, include: string[]): Promise<Map<string
 				if (!EXCLUDED_DIRS.has(entry.name) && !entry.name.startsWith('.')) await walk(abs);
 				continue;
 			}
+			if (!entry.isFile()) continue;
 			// Dotfiles stay out wholesale — .env-style files must never be mirrored.
-			if (!entry.isFile() || entry.name.startsWith('.') || EXCLUDED_FILES.test(rel)) continue;
+			if (entry.name.startsWith('.')) {
+				skipped.dotfile++;
+				continue;
+			}
+			if (EXCLUDED_FILES.test(rel)) {
+				skipped.excluded++;
+				continue;
+			}
 			if (include.length && !include.some((p) => rel === p || rel.startsWith(p.replace(/\/$/, '') + '/')))
 				continue;
-			if ((await stat(abs)).size > MAX_FILE_BYTES) continue;
+			if ((await stat(abs)).size > MAX_FILE_BYTES) {
+				skipped.oversized++;
+				continue;
+			}
 			const buf = await readFile(abs);
-			if (buf.subarray(0, 8192).includes(0)) continue;
-			out.set(rel, buf.toString('utf8'));
+			if (buf.subarray(0, 8192).includes(0)) {
+				skipped.binary++;
+				continue;
+			}
+			files.set(rel, buf.toString('utf8'));
 		}
 	}
 	await walk(root);
-	return out;
+	return { files, skipped };
 }
 
 function repoPathOf(doc: Doc): string | null {
@@ -180,10 +207,18 @@ async function runSync(workspaceId: string, opts: { force?: boolean }): Promise<
 
 		if (!opts.force && cfg.lastCommit === commit) {
 			await saveConfigPatch(workspaceId, { lastSyncAt: new Date().toISOString(), lastError: null });
-			return { commit, unchanged: true, created: 0, updated: 0, deleted: 0, files: cfg.fileCount ?? 0 };
+			return {
+				commit,
+				unchanged: true,
+				created: 0,
+				updated: 0,
+				deleted: 0,
+				files: cfg.fileCount ?? 0,
+				skipped: cfg.skipped ?? { dotfile: 0, excluded: 0, oversized: 0, binary: 0 }
+			};
 		}
 
-		const files = await collectFiles(dir, cfg.include ?? []);
+		const { files, skipped } = await collectFiles(dir, cfg.include ?? []);
 		const fileSet = new Set(files.keys());
 
 		// Every doc in the workspace, soft-deleted included: a file that comes
@@ -264,10 +299,11 @@ async function runSync(workspaceId: string, opts: { force?: boolean }): Promise<
 			lastCommit: commit,
 			lastSyncAt: new Date().toISOString(),
 			lastError: null,
-			fileCount: files.size
+			fileCount: files.size,
+			skipped
 		});
 
-		return { commit, unchanged: false, created, updated, deleted, files: files.size };
+		return { commit, unchanged: false, created, updated, deleted, files: files.size, skipped };
 	} finally {
 		await rm(dir, { recursive: true, force: true }).catch(() => {});
 	}
