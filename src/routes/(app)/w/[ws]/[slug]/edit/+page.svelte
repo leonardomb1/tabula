@@ -19,6 +19,8 @@
 
 <DocEditor
 	workspaceId={wsId}
+	docSlug={data.doc.slug}
+	templates={data.templates}
 	action="?/save"
 	submitLabel={m.doc_save()}
 	cancelHref={docHref(wsId, data.doc.slug)}
@@ -27,7 +29,8 @@
 		title: form?.title ?? data.doc.title,
 		tags: form?.tags ?? data.doc.tags,
 		mode: form?.mode ?? data.doc.mode,
-		source: form?.source ?? data.doc.source
+		source: form?.source ?? data.doc.source,
+		template: data.doc.template
 	}}
 >
 	<a class="link" href={historyHref(wsId, data.doc.slug)}>

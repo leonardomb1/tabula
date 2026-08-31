@@ -13,6 +13,7 @@
 
 <DocEditor
 	workspaceId={data.current?.id ?? ''}
+	templates={data.templates}
 	action=""
 	submitLabel={m.doc_create()}
 	cancelHref={workspaceHref(data.current?.id ?? '')}

@@ -3,11 +3,14 @@ import * as m from '$lib/paraglide/messages';
 import { requireRole } from '$lib/server/apiGuards';
 import { createDoc } from '$lib/server/docs';
 import { readDocForm } from '$lib/server/docForm';
+import { listTemplates } from '$lib/server/templates';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	requireRole(locals, params.ws, 'editor');
-	return {};
+	return {
+		templates: (await listTemplates(params.ws)).map((t) => ({ slug: t.slug, name: t.name }))
+	};
 };
 
 export const actions: Actions = {

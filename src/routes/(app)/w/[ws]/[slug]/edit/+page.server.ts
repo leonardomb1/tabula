@@ -4,6 +4,7 @@ import { requireRole } from '$lib/server/apiGuards';
 import { getDocBySlug, softDeleteDoc, updateDoc } from '$lib/server/docs';
 import { readDocForm } from '$lib/server/docForm';
 import { onDocUpdated } from '$lib/server/publication';
+import { listTemplates } from '$lib/server/templates';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -11,6 +12,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const doc = await getDocBySlug(params.ws, params.slug);
 	if (!doc) error(404);
 
+	const fmTemplate = (doc.frontmatter as Record<string, unknown>)?.template;
 	return {
 		doc: {
 			id: doc.id,
@@ -19,8 +21,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			mode: doc.mode,
 			source: doc.source,
 			tags: doc.tags,
-			isPublic: doc.isPublic
-		}
+			isPublic: doc.isPublic,
+			template: typeof fmTemplate === 'string' ? fmTemplate : ''
+		},
+		templates: (await listTemplates(params.ws)).map((t) => ({ slug: t.slug, name: t.name }))
 	};
 };
 

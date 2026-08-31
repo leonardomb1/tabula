@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import { enhance } from '$app/forms';
 	import SourceEditor from './SourceEditor.svelte';
+	import TypstPreview from './TypstPreview.svelte';
 	import * as m from '$lib/paraglide/messages';
 
 	interface Initial {
@@ -10,10 +11,13 @@
 		tags: string[];
 		mode: 'markdown' | 'typst';
 		source: string;
+		template?: string;
 	}
 
 	let {
 		workspaceId,
+		docSlug = '',
+		templates = [],
 		initial,
 		action,
 		submitLabel,
@@ -22,6 +26,8 @@
 		children
 	}: {
 		workspaceId: string;
+		docSlug?: string;
+		templates?: { slug: string; name: string }[];
 		initial: Initial;
 		action: string;
 		submitLabel: string;
@@ -35,9 +41,14 @@
 	let tags = $state(seed.tags.join(', '));
 	let mode = $state<'markdown' | 'typst'>(seed.mode);
 	let source = $state(seed.source);
+	let template = $state(
+		untrack(() => (templates.some((t) => t.slug === seed.template) ? seed.template! : ''))
+	);
 
 	let showPreview = $state(true);
 	let previewHtml = $state('');
+	let previewSvg = $state('');
+	let previewPages = $state(1);
 	let previewError = $state<string | null>(null);
 	let previewing = $state(false);
 	let formEl = $state<HTMLFormElement | null>(null);
@@ -50,11 +61,21 @@
 			const res = await fetch('/api/preview', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ workspaceId, mode, source })
+				body: JSON.stringify({
+					workspaceId,
+					mode,
+					source,
+					template: mode === 'markdown' ? template : '',
+					title,
+					slug: docSlug,
+					tags: tags.split(',').map((t) => t.trim()).filter(Boolean)
+				})
 			});
 			const body = await res.json();
 			if (mine !== token) return;
 			previewError = body.error ?? null;
+			previewSvg = body.svg ?? '';
+			previewPages = body.pages ?? 1;
 			previewHtml = body.html ?? '';
 		} catch {
 			if (mine === token) previewError = 'preview failed';
@@ -68,7 +89,7 @@
 		clearTimeout(timer);
 		previewing = true;
 		const mine = ++token;
-		timer = setTimeout(() => render(mine), mode === 'typst' ? 500 : 250);
+		timer = setTimeout(() => render(mine), mode === 'typst' || template ? 500 : 250);
 	}
 
 	onMount(schedulePreview);
@@ -155,6 +176,18 @@
 			<span class="legacy" title={m.editor_legacy_typst()}>{m.editor_legacy_typst()}</span>
 		{/if}
 
+		{#if mode === 'markdown' && templates.length}
+			<label class="field">
+				<span class="field-label">{m.editor_template_label()}</span>
+				<select bind:value={template} onchange={schedulePreview}>
+					<option value="">{m.template_default()}</option>
+					{#each templates as t (t.slug)}
+						<option value={t.slug}>{t.name}</option>
+					{/each}
+				</select>
+			</label>
+		{/if}
+
 
 		<button
 			type="button"
@@ -193,13 +226,13 @@
 		</div>
 
 		{#if showPreview}
-			<div class="preview">
+			<div class="preview" class:paged={!previewError && !!previewSvg}>
 				{#if previewError}
 					<pre class="preview-error">{previewError}</pre>
-				{:else if previewing && !previewHtml}
+				{:else if previewing && !previewHtml && !previewSvg}
 					<p class="pending">{m.preview_pending()}</p>
-				{:else if mode === 'typst'}
-					<div class="typst">{@html previewHtml}</div>
+				{:else if previewSvg}
+					<TypstPreview svg={previewSvg} pages={previewPages} />
 				{:else}
 					<div class="prose">{@html previewHtml}</div>
 				{/if}
@@ -309,7 +342,8 @@
 		color: var(--text-faint);
 	}
 
-	.field input {
+	.field input,
+	.field select {
 		height: 30px;
 		width: 100%;
 		padding: 0 9px;
@@ -318,7 +352,14 @@
 		background: var(--bg);
 		font-size: 13px;
 	}
-	.field input:hover {
+	.field select {
+		width: auto;
+		max-width: 220px;
+		color: var(--text);
+		cursor: pointer;
+	}
+	.field input:hover,
+	.field select:hover {
 		border-color: var(--border-strong);
 	}
 
@@ -402,6 +443,13 @@
 		border-radius: var(--radius);
 		background: var(--bg);
 	}
+	.preview.paged {
+		padding: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
 
 	.pending {
 		color: var(--text-faint);
@@ -417,11 +465,6 @@
 		font-size: 12px;
 		white-space: pre-wrap;
 		word-break: break-word;
-	}
-
-	.typst :global(svg) {
-		max-width: 100%;
-		height: auto;
 	}
 
 	.prose {
