@@ -13,10 +13,11 @@
 
 	let { data, form }: PageProps = $props();
 
-	type Section = 'general' | 'access' | 'policy' | 'review';
+	type Section = 'general' | 'access' | 'policy' | 'review' | 'repo';
 	const section = $derived(data.section);
 	let creating = $state(false);
 	let confirmDeleteId = $state('');
+	let syncing = $state(false);
 
 	const err = $derived(form && 'error' in form ? String(form.error) : null);
 	const justSaved = $derived(Boolean(form && 'saved' in form));
@@ -25,15 +26,19 @@
 		invalid_id: m.admin_error_invalid_id,
 		exists: m.admin_error_exists,
 		name_required: m.admin_error_name,
-		quorum: m.admin_quorum_deadlock
+		quorum: m.admin_quorum_deadlock,
+		repo_url_required: m.repo_error_url
 	};
 
 	const sections: { id: Section; label: () => string }[] = [
 		{ id: 'general', label: m.admin_section_general },
 		{ id: 'access', label: m.admin_section_access },
 		{ id: 'policy', label: m.admin_section_policy },
-		{ id: 'review', label: m.admin_section_review }
+		{ id: 'review', label: m.admin_section_review },
+		{ id: 'repo', label: m.nav_repo }
 	];
+
+	const syncResult = $derived(form && 'sync' in form ? form.sync : null);
 
 	function matchesYou(sel: Selector): boolean {
 		return matchesSelector(sel, data.you.claims);
@@ -224,6 +229,82 @@
 					</div>
 				{/if}
 
+				{#if section === 'repo'}
+					<form class="block" method="POST" action="?/repoSave" use:enhance>
+						<input type="hidden" name="ws" value={cur.id} />
+						<h2>{m.repo_title()}</h2>
+						<p class="hint">{m.repo_subtitle()}</p>
+
+						<div class="field">
+							<label for="repo-url">{m.repo_url()}</label>
+							<input id="repo-url" name="url" value={cur.repo.url} placeholder="https://gitlab.com/group/project.git" autocomplete="off" required />
+						</div>
+						<div class="field">
+							<label for="repo-branch">{m.repo_branch()}</label>
+							<input id="repo-branch" name="branch" value={cur.repo.branch} autocomplete="off" />
+						</div>
+						<div class="field">
+							<label for="repo-user">{m.repo_username()}</label>
+							<input id="repo-user" name="username" value={cur.repo.username} placeholder="oauth2" autocomplete="off" />
+						</div>
+						<div class="field">
+							<label for="repo-token">
+								{m.repo_token()}
+								{#if cur.repo.hasToken}<span class="hint-inline">{m.repo_token_set()}</span>{/if}
+							</label>
+							<input id="repo-token" name="token" type="password" placeholder={cur.repo.hasToken ? '••••••••' : ''} autocomplete="new-password" />
+						</div>
+						<div class="field">
+							<label for="repo-include">{m.repo_include()}</label>
+							<input id="repo-include" name="include" value={cur.repo.include} placeholder="src/, docs/" autocomplete="off" />
+						</div>
+						<button type="submit" class="secondary">{m.repo_save()}</button>
+					</form>
+
+					<div class="block">
+						<h2>{m.repo_status()}</h2>
+						{#if cur.repo.lastError}
+							<p class="error">{cur.repo.lastError}</p>
+						{/if}
+						{#if syncResult}
+							<p class="hint">
+								{syncResult.unchanged
+									? m.repo_sync_unchanged()
+									: m.repo_sync_done({
+											created: syncResult.created,
+											updated: syncResult.updated,
+											deleted: syncResult.deleted
+										})}
+							</p>
+						{/if}
+						<dl class="facts">
+							<dt>{m.repo_last_sync()}</dt>
+							<dd>{cur.repo.lastSyncAt ? new Date(cur.repo.lastSyncAt).toLocaleString() : m.repo_never()}</dd>
+							<dt>{m.repo_last_commit()}</dt>
+							<dd><code>{cur.repo.lastCommit ? cur.repo.lastCommit.slice(0, 10) : '—'}</code></dd>
+							<dt>{m.repo_files()}</dt>
+							<dd>{cur.repo.fileCount}</dd>
+						</dl>
+						<form
+							method="POST"
+							action="?/repoSync"
+							use:enhance={() => {
+								syncing = true;
+								return async ({ update }) => {
+									await update();
+									syncing = false;
+								};
+							}}
+						>
+							<input type="hidden" name="ws" value={cur.id} />
+							<button type="submit" class="secondary" disabled={syncing || !cur.repo.url}>
+								{syncing ? m.repo_syncing() : m.repo_sync_now()}
+							</button>
+						</form>
+						<p class="hint">{m.repo_readonly_note()}</p>
+					</div>
+				{/if}
+
 				{#key cur.id}
 					<PolicyEditor
 						wsId={cur.id}
@@ -241,6 +322,14 @@
 </div>
 
 <style>
+	.hint-inline {
+		margin-inline-start: 6px;
+		font-weight: 400;
+		text-transform: none;
+		letter-spacing: 0;
+		color: var(--text-muted);
+	}
+
 	.page {
 		max-width: 1080px;
 		margin: 0 auto;

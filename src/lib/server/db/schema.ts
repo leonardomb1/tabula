@@ -38,6 +38,8 @@ export const workspaces = pgTable('workspaces', {
 	name: text('name').notNull(),
 	kind: text('kind').notNull().default('team'),
 	policy: jsonb('policy').notNull().default(sql`'{}'::jsonb`),
+	/** Git mirror configuration; non-null marks a repo workspace (kind 'repo'). */
+	repo: jsonb('repo'),
 	createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 });
 

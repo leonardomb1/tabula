@@ -5,10 +5,12 @@ import { getDocBySlug, softDeleteDoc, updateDoc } from '$lib/server/docs';
 import { readDocForm } from '$lib/server/docForm';
 import { onDocUpdated } from '$lib/server/publication';
 import { listTemplates } from '$lib/server/templates';
+import { docsWritable } from '$lib/server/repo/sync';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
 	requireRole(locals, params.ws, 'editor');
+	if (!(await docsWritable(params.ws))) error(403, 'repo workspaces are read-only');
 	const doc = await getDocBySlug(params.ws, params.slug);
 	if (!doc) error(404);
 
@@ -31,6 +33,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 export const actions: Actions = {
 	save: async ({ request, params, locals }) => {
 		const { user } = requireRole(locals, params.ws, 'editor');
+		if (!(await docsWritable(params.ws))) error(403, 'repo workspaces are read-only');
 		const doc = await getDocBySlug(params.ws, params.slug);
 		if (!doc) error(404);
 
@@ -59,6 +62,7 @@ export const actions: Actions = {
 
 	delete: async ({ params, locals }) => {
 		const { user } = requireRole(locals, params.ws, 'maintainer');
+		if (!(await docsWritable(params.ws))) error(403, 'repo workspaces are read-only');
 		const doc = await getDocBySlug(params.ws, params.slug);
 		if (!doc) error(404);
 

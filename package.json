@@ -68,6 +68,7 @@
 		"codemirror-lang-typst": "^0.4.0",
 		"drizzle-orm": "^0.45.2",
 		"gray-matter": "^4.0.3",
+		"isomorphic-git": "^1.41.9",
 		"ldapts": "^9.0.0",
 		"markdown-it": "^14.3.0",
 		"postgres": "^3.4.9",

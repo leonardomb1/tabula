@@ -8,6 +8,7 @@ import { defineConfig, loadEnv } from 'vite';
 // into the browser graph — keep them external to SSR so Node loads them directly.
 const serverOnly = [
 	'@myriaddreamin/typst-ts-node-compiler',
+	'isomorphic-git',
 	'@aws-sdk/client-s3',
 	'@azure/storage-blob',
 	'postgres',

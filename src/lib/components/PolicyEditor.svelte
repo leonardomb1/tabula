@@ -23,7 +23,7 @@
 		// Display text comes from attributeLabel, not the row: an attribute is a
 		// claim name, so most have no written label to carry.
 		attributes?: { key: string }[];
-		section: 'general' | 'access' | 'policy' | 'review';
+		section: 'general' | 'access' | 'policy' | 'review' | 'repo';
 		saved?: boolean;
 	} = $props();
 

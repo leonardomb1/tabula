@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	return {
 		workspace,
 		...(await loadIndexData(params.ws, url)),
-		canWrite: locals.access.can(params.ws, 'editor'),
+		canWrite: locals.access.can(params.ws, 'editor') && workspace.kind !== 'repo',
 		drafts: own ? await listDrafts(params.ws) : []
 	};
 };

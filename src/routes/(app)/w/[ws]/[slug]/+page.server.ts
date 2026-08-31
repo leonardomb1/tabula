@@ -5,6 +5,7 @@ import { getOrCompileSvg, TypstCompileError } from '$lib/server/typst';
 import { listTemplates, parseTemplateMeta } from '$lib/server/templates';
 import { getPeople, unknownPerson } from '$lib/server/people';
 import { getPolicy } from '$lib/server/workspaces';
+import { docsWritable } from '$lib/server/repo/sync';
 import {
 	openPublishRequest,
 	requestPublish,
@@ -55,7 +56,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	return {
 		pendingPublish: pending ? { requestedBy: pending.requestedBy ?? '', canApprove } : null,
 		canPublish,
-		canWrite: locals.access?.can(params.ws, 'editor') ?? false,
+		canWrite: (locals.access?.can(params.ws, 'editor') ?? false) && (await docsWritable(params.ws)),
 		templates: templates.map((t) => ({
 			slug: t.slug,
 			name: t.name,

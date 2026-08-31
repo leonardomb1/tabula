@@ -34,6 +34,7 @@ import { compileSvg, explainCompileError, TypstCompileError } from '../typst';
 import { signArtifact } from '../artifacts';
 import { formalNameFor } from '../userSettings';
 import { personalWorkspaceId, slugify } from '../ids';
+import { docsWritable } from '../repo/sync';
 
 /**
  * Absolute base for links handed to a caller. ORIGIN is what adapter-node already
@@ -305,6 +306,8 @@ export function buildMcpServer(access: Access): McpServer {
 		},
 		async ({ workspaceId, title, source, mode, slug, tags }) => {
 			if (!access.can(workspaceId, 'editor')) return fail(`Requires editor access to ${workspaceId}`);
+			if (!(await docsWritable(workspaceId)))
+				return fail('This is a repo mirror workspace; its documents are synced from git and read-only');
 			const doc = await createDoc({
 				workspaceId,
 				title,
@@ -337,6 +340,8 @@ export function buildMcpServer(access: Access): McpServer {
 			const existing = await getDoc(id);
 			if (!existing) return fail('Document not found');
 			if (!access.can(existing.workspaceId, 'editor')) return fail('Requires editor access');
+			if (!(await docsWritable(existing.workspaceId)))
+				return fail('This is a repo mirror workspace; its documents are synced from git and read-only');
 			const updated = await updateDoc(id, { title, source, mode, tags }, access.principal.username);
 			await onDocUpdated(updated);
 			return ok({
@@ -355,6 +360,12 @@ export function buildMcpServer(access: Access): McpServer {
 		if (!doc) return { ok: false as const, result: fail(`Document not found: ${id}`) };
 		if (!access.can(doc.workspaceId, 'editor')) {
 			return { ok: false as const, result: fail('Requires editor access') };
+		}
+		if (!(await docsWritable(doc.workspaceId))) {
+			return {
+				ok: false as const,
+				result: fail('This is a repo mirror workspace; its documents are synced from git and read-only')
+			};
 		}
 		return { ok: true as const, doc };
 	}
@@ -382,6 +393,8 @@ export function buildMcpServer(access: Access): McpServer {
 			const personal = personalWorkspaceId(access.principal.username);
 			const ws = workspaceId ?? personal;
 			if (!access.can(ws, 'editor')) return fail(`Requires editor access to ${ws}`);
+			if (ws !== personal && !(await docsWritable(ws)))
+				return fail('This is a repo mirror workspace; its documents are synced from git and read-only');
 			// A token-only caller may never have hit the login path that creates it.
 			if (ws === personal) await ensureWorkspace(ws, access.principal.username, 'personal');
 

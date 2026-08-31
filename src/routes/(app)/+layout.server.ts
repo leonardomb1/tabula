@@ -63,7 +63,7 @@ export const load: LayoutServerLoad = async ({ locals, url, cookies }) => {
 		},
 		workspaces,
 		current,
-		canWrite: current ? access.can(current.id, 'editor') : false,
+		canWrite: current ? access.can(current.id, 'editor') && current.kind !== 'repo' : false,
 		recent: recent?.docs.map((d) => ({ id: d.id, slug: d.slug, title: d.title })) ?? [],
 		total: recent?.total ?? 0,
 		tagCounts

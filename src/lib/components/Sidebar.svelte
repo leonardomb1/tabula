@@ -138,6 +138,7 @@
 			<span class="label">{m.nav_connections()}</span>
 		</a>
 
+
 		{#if recent.length > 0}
 			<p class="head">{m.sidebar_recent()}</p>
 			{#each recent as doc (doc.id)}

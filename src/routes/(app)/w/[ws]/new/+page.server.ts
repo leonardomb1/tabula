@@ -1,9 +1,10 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireRole } from '$lib/server/apiGuards';
 import { createDoc } from '$lib/server/docs';
 import { readDocForm } from '$lib/server/docForm';
 import { listTemplates } from '$lib/server/templates';
+import { docsWritable } from '$lib/server/repo/sync';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -16,6 +17,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 export const actions: Actions = {
 	default: async ({ request, params, locals }) => {
 		const { user } = requireRole(locals, params.ws, 'editor');
+		if (!(await docsWritable(params.ws))) error(403, 'repo workspaces are read-only');
 		const values = readDocForm(await request.formData());
 
 		if (!values.title) {
