@@ -226,15 +226,26 @@
 		</div>
 
 		{#if showPreview}
-			<div class="preview" class:paged={!previewError && !!previewSvg}>
+			{@const refreshing =
+				previewing &&
+				(mode === 'typst' || !!template) &&
+				!!(previewHtml || previewSvg || previewError)}
+			<div class="preview" class:paged={!previewError && !!previewSvg} class:refreshing>
+				{#if refreshing}
+					<div class="preview-refresh" aria-hidden="true"><span class="spin"></span></div>
+				{/if}
 				{#if previewError}
 					<pre class="preview-error">{previewError}</pre>
 				{:else if previewing && !previewHtml && !previewSvg}
 					<p class="pending">{m.preview_pending()}</p>
-				{:else if previewSvg}
-					<TypstPreview svg={previewSvg} pages={previewPages} />
 				{:else}
-					<div class="prose">{@html previewHtml}</div>
+					<div class="preview-body">
+						{#if previewSvg}
+							<TypstPreview svg={previewSvg} pages={previewPages} />
+						{:else}
+							<div class="prose">{@html previewHtml}</div>
+						{/if}
+					</div>
 				{/if}
 			</div>
 		{/if}
@@ -449,6 +460,43 @@
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
+	}
+
+	.preview-body {
+		transition: opacity 120ms ease;
+	}
+	.paged .preview-body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+	.refreshing :is(.preview-body, .preview-error) {
+		opacity: 0.45;
+		pointer-events: none;
+	}
+
+	.preview-refresh {
+		position: sticky;
+		top: 0;
+		z-index: 2;
+		height: 0;
+		display: flex;
+		justify-content: center;
+	}
+	.spin {
+		margin-top: 12px;
+		width: 18px;
+		height: 18px;
+		border: 2px solid var(--border-strong);
+		border-top-color: var(--brand);
+		border-radius: 50%;
+		animation: preview-spin 0.7s linear infinite;
+	}
+	@keyframes preview-spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.pending {

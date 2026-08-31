@@ -31,11 +31,10 @@ jobs:
 
       # src/lib/paraglide é gerado, então não está no repositório; o script `check`
       # compila as mensagens antes de rodar o svelte-check.
+      # O `vite build` em si não roda aqui: o job de imagem já compila o app
+      # dentro do Dockerfile, inclusive em PRs (só o push é pulado).
       - name: svelte-check
         run: bun run check
-
-      - name: Build
-        run: bun run build
 
   build:
     name: Build e push da imagem
@@ -72,6 +71,7 @@ jobs:
         id: meta_tools
         uses: docker/metadata-action@v5
         with:
+          bake-target: docker-metadata-action-tools
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-tools
           tags: |
             type=ref,event=pr
@@ -79,24 +79,21 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build e push (app)
-        uses: docker/build-push-action@v6
+      # Um único bake constrói app e tools no mesmo grafo: os estágios comuns
+      # (deps, cópia do fonte) são computados uma vez só, com um upload de
+      # contexto e um export de cache por alvo em escopos separados.
+      - name: Build e push (app + tools)
+        uses: docker/bake-action@v6
         with:
-          context: .
-          target: runtime
+          source: .
+          files: |
+            ./docker-bake.hcl
+            cwd://${{ steps.meta.outputs.bake-file }}
+            cwd://${{ steps.meta_tools.outputs.bake-file }}
+          targets: default
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build e push (tools)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: tools
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta_tools.outputs.tags }}
-          labels: ${{ steps.meta_tools.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          set: |
+            app.cache-from=type=gha,scope=app
+            app.cache-to=type=gha,mode=max,scope=app
+            tools.cache-from=type=gha,scope=tools
+            tools.cache-to=type=gha,mode=max,scope=tools
