@@ -59,6 +59,34 @@ export const STARTER_TEMPLATE = `#import "@preview/cmarker:0.1.6"
 #cmarker.render(read("/doc.md"), raw-typst: true)
 `;
 
+/** Canned markdown a template is previewed against in the template editor. */
+export const SAMPLE_DOC = `# Título de exemplo
+
+Este documento de exemplo mostra como o modelo formata os elementos mais comuns
+de um documento real antes de ser aplicado.
+
+## Texto e listas
+
+Um parágrafo com **negrito**, *itálico* e \`código inline\`, seguido de uma lista:
+
+- Primeiro item
+- Segundo item
+- Terceiro item
+
+> Uma citação curta para conferir o estilo de bloco.
+
+## Tabela e código
+
+| Coluna A | Coluna B |
+| --- | --- |
+| Valor 1 | Valor 2 |
+| Valor 3 | Valor 4 |
+
+\`\`\`
+tabula export --template este-modelo
+\`\`\`
+`;
+
 export interface TemplateOption {
 	key: string;
 	type: 'text' | 'boolean' | 'list';

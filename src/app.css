@@ -1,6 +1,23 @@
 @import '@fontsource-variable/hanken-grotesk';
 @import '@fontsource-variable/fraunces';
 @import '@fontsource-variable/source-serif-4';
+@import '@fontsource-variable/literata';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/merriweather';
+@import '@fontsource-variable/lora';
+@import '@fontsource-variable/source-sans-3';
+@import '@fontsource-variable/open-sans';
+@import '@fontsource-variable/roboto';
+@import '@fontsource-variable/noto-sans';
+@import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource/lato/400.css';
+@import '@fontsource/lato/400-italic.css';
+@import '@fontsource/lato/700.css';
+@import '@fontsource/lato/700-italic.css';
+@import '@fontsource/atkinson-hyperlegible/400.css';
+@import '@fontsource/atkinson-hyperlegible/400-italic.css';
+@import '@fontsource/atkinson-hyperlegible/700.css';
+@import '@fontsource/atkinson-hyperlegible/700-italic.css';
 
 :root {
 	--brand: #e63719;
@@ -25,6 +42,8 @@
 	--font-serif-read: 'Source Serif 4 Variable', Georgia, serif;
 	--font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
 	--font-read: var(--font-serif-read);
+	--read-size: 17px;
+	--read-width: 46rem;
 
 	--rail-width: 264px;
 	--radius: 10px;
@@ -36,11 +55,50 @@
 	color-scheme: dark;
 }
 
+/* Keep in sync with READING_FONT_FAMILIES in src/lib/preferences.ts. */
+/* Set by the boot script pre-paint and toggled from the sidebar. */
+:root[data-rail='closed'] .rail {
+	display: none;
+}
+
 :root[data-font='sans'] {
 	--font-read: var(--font-ui);
 }
 :root[data-font='mono'] {
 	--font-read: var(--font-mono);
+}
+:root[data-font='literata'] {
+	--font-read: 'Literata Variable', Georgia, serif;
+}
+:root[data-font='merriweather'] {
+	--font-read: 'Merriweather Variable', Georgia, serif;
+}
+:root[data-font='lora'] {
+	--font-read: 'Lora Variable', Georgia, serif;
+}
+:root[data-font='inter'] {
+	--font-read: 'Inter Variable', system-ui, sans-serif;
+}
+:root[data-font='source-sans'] {
+	--font-read: 'Source Sans 3 Variable', system-ui, sans-serif;
+}
+:root[data-font='open-sans'] {
+	--font-read: 'Open Sans Variable', system-ui, sans-serif;
+}
+:root[data-font='roboto'] {
+	--font-read: 'Roboto Variable', system-ui, sans-serif;
+}
+:root[data-font='lato'] {
+	--font-read: 'Lato', system-ui, sans-serif;
+}
+:root[data-font='noto-sans'] {
+	--font-read: 'Noto Sans Variable', system-ui, sans-serif;
+}
+:root[data-font='atkinson'] {
+	--font-read: 'Atkinson Hyperlegible', system-ui, sans-serif;
+}
+:root[data-font='jetbrains-mono'] {
+	--font-read: 'JetBrains Mono Variable', monospace;
 }
 
 @media (prefers-color-scheme: light) {
@@ -308,7 +366,7 @@ body {
 
 .prose {
 	font-family: var(--font-read);
-	font-size: 17px;
+	font-size: var(--read-size, 17px);
 	line-height: 1.7;
 	color: var(--text);
 }

@@ -1,7 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Access } from '../access';
-import { searchDocs } from '../search';
+import { searchChunks, searchDocs } from '../search';
+import {
+	getBacklinksWithContext,
+	getOutgoingLinks,
+	getRelatedDocs,
+	getUnlinkedMentions,
+	getWorkspaceGraph,
+	type DocConnection
+} from '../connections';
 import {
 	getDoc,
 	getDocBySlug,
@@ -54,7 +62,11 @@ const failWith = (data: unknown): ToolResult => ({
 export function buildMcpServer(access: Access): McpServer {
 	const server = new McpServer(
 		{ name: 'tabula', version: '0.1.0' },
-		{ capabilities: { tools: {} }, instructions: 'Search, read, and write tabula documentation.' }
+		{
+			capabilities: { tools: {} },
+			instructions:
+				'Search, read, and write tabula documentation. To understand a topic, walk the knowledge graph: enter via semantic_search or search_docs, expand with doc_neighbors (links, backlinks, similar, mentions), orient with graph_overview, and read the documents that matter with get_doc.'
+		}
 	);
 
 	server.registerTool(
@@ -80,6 +92,115 @@ export function buildMcpServer(access: Access): McpServer {
 					snippet: h.snippet
 				}))
 			);
+		}
+	);
+
+	server.registerTool(
+		'semantic_search',
+		{
+			title: 'Semantic search',
+			description:
+				'Pure embedding search at chunk granularity: returns the best-matching passages with their document refs and cosine similarity. Use as entry points into the document graph, then walk outward with doc_neighbors. Empty when the semantic index is unavailable — fall back to search_docs.',
+			inputSchema: {
+				query: z.string().describe('A topic or question, matched by meaning rather than keywords'),
+				workspaceId: z.string().optional().describe('Restrict to one workspace'),
+				limit: z.number().int().min(1).max(20).optional()
+			}
+		},
+		async ({ query, workspaceId, limit }) => {
+			const hits = await searchChunks(access, { query, workspaceId, limit });
+			return ok(
+				hits.map((h) => ({
+					id: h.id,
+					workspaceId: h.workspaceId,
+					slug: h.slug,
+					title: h.title,
+					similarity: h.similarity,
+					passage: h.content
+				}))
+			);
+		}
+	);
+
+	server.registerTool(
+		'doc_neighbors',
+		{
+			title: 'Document neighbors',
+			description:
+				'One hop from a document in the knowledge graph: outgoing wikilinks, backlinks (with the sentence around each mention), semantically similar documents (with cosine similarity), and unlinked title mentions. Call repeatedly on interesting neighbors to walk the graph and build up an understanding of a topic; use get_doc to read a document in full.',
+			inputSchema: {
+				id: z.string().optional(),
+				workspaceId: z.string().optional(),
+				slug: z.string().optional(),
+				kinds: z
+					.array(z.enum(['links', 'backlinks', 'similar', 'mentions']))
+					.optional()
+					.describe('Which neighbor kinds to return (default: all)'),
+				limit: z.number().int().min(1).max(20).optional().describe('Cap for similar docs (default 5)')
+			}
+		},
+		async ({ id, workspaceId, slug, kinds, limit }) => {
+			const doc = id
+				? await getDoc(id)
+				: workspaceId && slug
+					? await getDocBySlug(workspaceId, slug)
+					: null;
+			if (!doc) return fail('Document not found (provide id, or workspaceId + slug)');
+			if (!doc.isPublic && !access.can(doc.workspaceId)) return fail('Access denied');
+
+			const want = new Set(kinds ?? ['links', 'backlinks', 'similar', 'mentions']);
+			const none: DocConnection[] = [];
+			const [links, backlinks, similar, mentions] = await Promise.all([
+				want.has('links') ? getOutgoingLinks(doc) : none,
+				want.has('backlinks') ? getBacklinksWithContext(doc) : none,
+				want.has('similar') ? getRelatedDocs(doc, limit ?? 5) : none,
+				want.has('mentions') ? getUnlinkedMentions(doc) : none
+			]);
+
+			const visible = (c: DocConnection) => c.isPublic || access.can(c.workspaceId);
+			const shape = (c: DocConnection) => ({
+				id: c.id,
+				workspaceId: c.workspaceId,
+				slug: c.slug,
+				title: c.title,
+				...(c.excerpt ? { excerpt: c.excerpt } : {}),
+				...(c.similarity !== undefined ? { similarity: c.similarity } : {})
+			});
+			return ok({
+				doc: { id: doc.id, workspaceId: doc.workspaceId, slug: doc.slug, title: doc.title },
+				...(want.has('links') ? { links: links.filter(visible).map(shape) } : {}),
+				...(want.has('backlinks') ? { backlinks: backlinks.filter(visible).map(shape) } : {}),
+				...(want.has('similar') ? { similar: similar.filter(visible).map(shape) } : {}),
+				...(want.has('mentions') ? { mentions: mentions.filter(visible).map(shape) } : {})
+			});
+		}
+	);
+
+	server.registerTool(
+		'graph_overview',
+		{
+			title: 'Workspace graph overview',
+			description:
+				'The link graph of a workspace at a glance: documents (slug, title, link degree) and the wikilink edges among them, most-connected first. Use to orient before walking with doc_neighbors.',
+			inputSchema: {
+				workspaceId: z.string()
+			}
+		},
+		async ({ workspaceId }) => {
+			if (!access.can(workspaceId)) return fail(`No access to workspace ${workspaceId}`);
+			const graph = await getWorkspaceGraph(workspaceId);
+			const bySlug = new Map(graph.nodes.map((n) => [n.id, n.slug]));
+			const degree = new Map<string, number>();
+			for (const e of graph.edges) {
+				degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
+				degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
+			}
+			return ok({
+				docs: graph.nodes
+					.map((n) => ({ slug: n.slug, title: n.title, links: degree.get(n.id) ?? 0 }))
+					.sort((a, b) => b.links - a.links),
+				edges: graph.edges.map((e) => [bySlug.get(e.source), bySlug.get(e.target)])
+			});
 		}
 	);
 

@@ -3,7 +3,7 @@ import { requireRole } from '$lib/server/apiGuards';
 import { resolveDocRefs } from '$lib/server/docs';
 import { parseFrontmatter, renderMarkdown } from '$lib/server/markdown';
 import { renderMarkdownToSvg } from '$lib/server/markdown/pdf';
-import { getTemplate, subjectInputs } from '$lib/server/templates';
+import { getTemplate, SAMPLE_DOC, subjectInputs } from '$lib/server/templates';
 import { formalNameFor } from '$lib/server/userSettings';
 import { compileSvg, TypstCompileError } from '$lib/server/typst';
 
@@ -13,6 +13,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		mode?: string;
 		source?: string;
 		template?: string;
+		templateSource?: string;
 		title?: string;
 		slug?: string;
 		tags?: string[];
@@ -22,6 +23,26 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	const source = body.source ?? '';
 	try {
+		// Template editor: render the wrapper being edited against sample content.
+		if (typeof body.templateSource === 'string' && body.templateSource.trim()) {
+			const inputs = subjectInputs({
+				title: 'Documento de exemplo',
+				slug: 'exemplo',
+				tags: ['exemplo', 'modelo'],
+				workspaceId,
+				date: new Date(),
+				author: await formalNameFor(user.username),
+				frontmatter: {}
+			});
+			const { svg, pages } = await renderMarkdownToSvg(SAMPLE_DOC, {
+				workspaceId,
+				resolveRefs: resolveDocRefs,
+				wrapper: body.templateSource,
+				inputs
+			});
+			return json({ svg, pages });
+		}
+
 		if (body.mode === 'typst') {
 			const { svg, pages } = await compileSvg(source);
 			return json({ svg, pages });

@@ -19,9 +19,56 @@
 
 	let host = $state<HTMLDivElement | null>(null);
 	let mounted = $state(false);
+	let view: import('@codemirror/view').EditorView | undefined;
+
+	/** Wraps the selection (or inserts a placeholder pair at the cursor). */
+	export function wrapSelection(before: string, after: string = before) {
+		if (!view) return;
+		const { from, to } = view.state.selection.main;
+		if (from === to) {
+			view.dispatch({
+				changes: { from, insert: before + after },
+				selection: { anchor: from + before.length }
+			});
+		} else {
+			view.dispatch({
+				changes: [
+					{ from, insert: before },
+					{ from: to, insert: after }
+				],
+				selection: { anchor: from + before.length, head: to + before.length }
+			});
+		}
+		view.focus();
+	}
+
+	/** Prefixes every line touched by the selection, e.g. list or quote markers. */
+	export function prefixLines(prefix: string) {
+		if (!view) return;
+		const { from, to } = view.state.selection.main;
+		const first = view.state.doc.lineAt(from).number;
+		const last = view.state.doc.lineAt(to).number;
+		const changes = [];
+		for (let n = first; n <= last; n++) {
+			changes.push({ from: view.state.doc.line(n).from, insert: prefix });
+		}
+		view.dispatch({ changes });
+		view.focus();
+	}
+
+	/** Inserts a block snippet on its own lines after the current one. */
+	export function insertBlock(text: string, cursorOffset?: number) {
+		if (!view) return;
+		const line = view.state.doc.lineAt(view.state.selection.main.to);
+		const lead = line.length ? '\n\n' : '';
+		const insert = lead + text + '\n';
+		const anchor =
+			cursorOffset === undefined ? line.to + insert.length : line.to + lead.length + cursorOffset;
+		view.dispatch({ changes: { from: line.to, insert }, selection: { anchor } });
+		view.focus();
+	}
 
 	onMount(() => {
-		let view: import('@codemirror/view').EditorView | undefined;
 		let disposed = false;
 
 		(async () => {
@@ -251,6 +298,7 @@
 		return () => {
 			disposed = true;
 			view?.destroy();
+			view = undefined;
 		};
 	});
 </script>

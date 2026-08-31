@@ -20,6 +20,10 @@ export function templatesHref(workspaceId: string): string {
 	return resolve('/(app)/w/[ws]/templates', { ws: workspaceId });
 }
 
+export function connectionsHref(workspaceId: string): string {
+	return resolve('/(app)/w/[ws]/connections', { ws: workspaceId });
+}
+
 export function newDocHref(workspaceId: string): string {
 	return resolve('/(app)/w/[ws]/new', { ws: workspaceId });
 }

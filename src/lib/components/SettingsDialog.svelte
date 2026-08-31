@@ -7,6 +7,8 @@
 	import { dur } from '$lib/motion';
 	import Crown from './Crown.svelte';
 	import {
+		READING_FONTS,
+		READING_FONT_NAMES,
 		getReadingFont,
 		getTheme,
 		setReadingFont,
@@ -172,11 +174,12 @@
 		{ value: 'dark', label: m.theme_dark, path: 'M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z' }
 	];
 
-	const fonts: { value: ReadingFont; label: () => string; family: string }[] = [
-		{ value: 'serif', label: m.font_serif, family: 'var(--font-serif-read)' },
-		{ value: 'sans', label: m.font_sans, family: 'var(--font-ui)' },
-		{ value: 'mono', label: m.font_mono, family: 'var(--font-mono)' }
-	];
+	const localizedFonts: Partial<Record<ReadingFont, () => string>> = {
+		serif: m.font_serif,
+		sans: m.font_sans,
+		mono: m.font_mono
+	};
+	const fontName = (f: ReadingFont) => localizedFonts[f]?.() ?? READING_FONT_NAMES[f] ?? f;
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -204,8 +207,8 @@
 					onclick={() => (section = 'general')}
 				>
 					<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<circle cx="12" cy="12" r="3" />
-						<path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V1a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 17 2.6a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H23a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" transform="scale(0.86) translate(2 2)" />
+						<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+						<path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
 					</svg>
 					{m.settings_general()}
 				</button>
@@ -216,8 +219,8 @@
 					onclick={() => (section = 'account')}
 				>
 					<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<circle cx="12" cy="8" r="4" />
-						<path d="M5 21a7 7 0 0 1 14 0" />
+						<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+						<path d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0z" />
 					</svg>
 					{m.settings_account()}
 				</button>
@@ -228,8 +231,8 @@
 					onclick={() => (section = 'tokens')}
 				>
 					<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-						<circle cx="7.5" cy="15.5" r="4.5" />
-						<path d="M10.7 12.3 21 2m-4 4 3 3" />
+						<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
+						<path d="M16.5 7.5h.01" />
 					</svg>
 					{m.settings_tokens()}
 				</button>
@@ -271,21 +274,15 @@
 
 					<div class="row">
 						<span class="row-label">{m.font_label()}</span>
-						<div class="seg">
-							{#each fonts as option (option.value)}
-								<button
-									type="button"
-									class:selected={font === option.value}
-									style:font-family={option.family}
-									onclick={() => {
-										font = option.value;
-										setReadingFont(option.value);
-									}}
-								>
-									{option.label()}
-								</button>
+						<select
+							class="text-input"
+							bind:value={font}
+							onchange={() => setReadingFont(font)}
+						>
+							{#each READING_FONTS as option (option)}
+								<option value={option}>{fontName(option)}</option>
 							{/each}
-						</div>
+						</select>
 					</div>
 
 					<div class="row">

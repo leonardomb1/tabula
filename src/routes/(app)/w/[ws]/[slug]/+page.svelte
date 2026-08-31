@@ -8,6 +8,7 @@
 	import DocBody from '$lib/components/DocBody.svelte';
 	import ExportDialog from '$lib/components/ExportDialog.svelte';
 	import PersonCard from '$lib/components/PersonCard.svelte';
+	import ReaderPrefs from '$lib/components/ReaderPrefs.svelte';
 	import { formatDate } from '$lib/time';
 	import { countView } from '$lib/view-count';
 	import type { PageProps } from './$types';
@@ -70,6 +71,7 @@
 				{/if}
 			</h1>
 			<div class="doc-actions">
+				<ReaderPrefs />
 				<a href={historyHref(wsId, data.doc.slug)}>{m.doc_history()}</a>
 				{#if data.canPublish || data.pendingPublish?.canApprove}
 					<button type="button" class="publish-btn" onclick={() => (publishOpen = true)}>
@@ -127,16 +129,6 @@
 		<DocBody html={data.html} />
 	{/if}
 
-	{#if data.backlinks.length > 0}
-		<footer class="backlinks">
-			<h2>{m.doc_backlinks()}</h2>
-			<ul>
-				{#each data.backlinks as link (link.id)}
-					<li><a href={docHref(wsId, link.slug)}>{link.title || m.doc_untitled()}</a></li>
-				{/each}
-			</ul>
-		</footer>
-	{/if}
 </article>
 
 <ExportDialog
@@ -325,7 +317,7 @@
 	}
 
 	.doc {
-		max-width: 46rem;
+		max-width: var(--read-width, 46rem);
 		margin: 0 auto;
 		padding: 48px 32px 96px;
 	}
@@ -451,34 +443,6 @@
 		border: 1px solid var(--border-strong);
 	}
 
-
-	.backlinks {
-		margin-top: 56px;
-		padding-top: 20px;
-		border-top: 1px solid var(--border);
-	}
-	.backlinks h2 {
-		margin: 0 0 8px;
-		font-size: 11px;
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text-faint);
-	}
-	.backlinks ul {
-		margin: 0;
-		padding: 0;
-		list-style: none;
-	}
-	.backlinks li a {
-		display: block;
-		padding: 4px 0;
-		font-size: 13.5px;
-		color: var(--text-muted);
-	}
-	.backlinks li a:hover {
-		color: var(--text);
-	}
 
 	@media (max-width: 720px) {
 		.doc {

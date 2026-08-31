@@ -56,6 +56,51 @@
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let token = 0;
 
+	let editor = $state<ReturnType<typeof SourceEditor>>();
+
+	interface Helper {
+		key: string;
+		title: () => string;
+		text?: string;
+		cls?: string;
+		icon?: string;
+		run: () => void;
+	}
+
+	const ICONS = {
+		link: 'M10.5 13.5a4 4 0 0 0 5.66 0l3.3-3.3a4 4 0 0 0-5.66-5.66l-1.8 1.8M13.5 10.5a4 4 0 0 0-5.66 0l-3.3 3.3a4 4 0 0 0 5.66 5.66l1.8-1.8',
+		list: 'M8.5 6h12.5M8.5 12h12.5M8.5 18h12.5M3.5 6h.01M3.5 12h.01M3.5 18h.01',
+		table: 'M3 5h18v14H3zM3 11h18M12 5v14'
+	};
+
+	const mdHelpers: Helper[] = [
+		{ key: 'heading', title: m.helper_heading, text: 'H', cls: 'b', run: () => editor?.prefixLines('## ') },
+		{ key: 'bold', title: m.helper_bold, text: 'B', cls: 'b', run: () => editor?.wrapSelection('**') },
+		{ key: 'italic', title: m.helper_italic, text: 'I', cls: 'i', run: () => editor?.wrapSelection('*') },
+		{ key: 'strike', title: m.helper_strike, text: 'S', cls: 's', run: () => editor?.wrapSelection('~~') },
+		{ key: 'code', title: m.helper_code, text: '</>', cls: 'm', run: () => editor?.wrapSelection('`') },
+		{ key: 'link', title: m.helper_link, icon: ICONS.link, run: () => editor?.wrapSelection('[', '](url)') },
+		{ key: 'wikilink', title: m.helper_wikilink, text: '[[·]]', cls: 'm', run: () => editor?.wrapSelection('[[', ']]') },
+		{ key: 'quote', title: m.helper_quote, text: '❝', run: () => editor?.prefixLines('> ') },
+		{ key: 'list', title: m.helper_list, icon: ICONS.list, run: () => editor?.prefixLines('- ') },
+		{ key: 'olist', title: m.helper_list_numbered, text: '1.', cls: 'm', run: () => editor?.prefixLines('1. ') },
+		{ key: 'table', title: m.helper_table, icon: ICONS.table, run: () => editor?.insertBlock('| A | B |\n| --- | --- |\n|   |   |') },
+		{ key: 'typst', title: m.helper_typst_block, text: 'typ', cls: 'm', run: () => editor?.insertBlock('```typst\n\n```', 9) }
+	];
+
+	const typstHelpers: Helper[] = [
+		{ key: 'heading', title: m.helper_heading, text: '=', cls: 'b', run: () => editor?.prefixLines('= ') },
+		{ key: 'bold', title: m.helper_bold, text: 'B', cls: 'b', run: () => editor?.wrapSelection('*') },
+		{ key: 'italic', title: m.helper_italic, text: 'I', cls: 'i', run: () => editor?.wrapSelection('_') },
+		{ key: 'code', title: m.helper_code, text: '</>', cls: 'm', run: () => editor?.wrapSelection('`') },
+		{ key: 'math', title: m.helper_math, text: '$', cls: 'm', run: () => editor?.wrapSelection('$') },
+		{ key: 'link', title: m.helper_link, icon: ICONS.link, run: () => editor?.wrapSelection('#link("")[', ']') },
+		{ key: 'list', title: m.helper_list, icon: ICONS.list, run: () => editor?.prefixLines('- ') },
+		{ key: 'table', title: m.helper_table, icon: ICONS.table, run: () => editor?.insertBlock('#table(\n  columns: 2,\n  [], [],\n)') }
+	];
+
+	const helpers = $derived(mode === 'typst' ? typstHelpers : mdHelpers);
+
 	async function render(mine: number) {
 		try {
 			const res = await fetch('/api/preview', {
@@ -207,12 +252,29 @@
 	<div class="panes" class:split={showPreview}>
 		<div class="source" class:enhanced={browser}>
 			{#if browser}
-				<SourceEditor
-					bind:value={source}
-					onchange={schedulePreview}
-					ariaLabel={m.editor_source_label()}
-					onuploadimage={mode === 'markdown' ? uploadImage : undefined}
-				/>
+				<div class="helpers" role="toolbar" aria-label={m.editor_helpers()}>
+					{#each helpers as h (h.key)}
+						<button type="button" class="hbtn" title={h.title()} aria-label={h.title()} onclick={h.run}>
+							{#if h.icon}
+								<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+									<path d={h.icon} />
+								</svg>
+							{:else}
+								<span class="glyph {h.cls ?? ''}">{h.text}</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+				<div class="editor-host">
+					<SourceEditor
+						bind:this={editor}
+						bind:value={source}
+						language={mode}
+						onchange={schedulePreview}
+						ariaLabel={m.editor_source_label()}
+						onuploadimage={mode === 'markdown' ? uploadImage : undefined}
+					/>
+				</div>
 			{/if}
 			<textarea
 				name="source"
@@ -424,6 +486,57 @@
 	.source {
 		min-height: 0;
 		height: 100%;
+	}
+	.source.enhanced {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.editor-host {
+		flex: 1;
+		min-height: 0;
+	}
+
+	.helpers {
+		display: flex;
+		align-items: center;
+		gap: 1px;
+		flex-shrink: 0;
+		flex-wrap: wrap;
+	}
+	.hbtn {
+		display: grid;
+		place-items: center;
+		min-width: 26px;
+		height: 24px;
+		padding: 0 5px;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: none;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+	.hbtn:hover {
+		background: var(--surface-active);
+		color: var(--text);
+	}
+	.glyph {
+		font-size: 12px;
+		line-height: 1;
+	}
+	.glyph.b {
+		font-weight: 700;
+	}
+	.glyph.i {
+		font-style: italic;
+		font-family: var(--font-display);
+	}
+	.glyph.s {
+		text-decoration: line-through;
+	}
+	.glyph.m {
+		font-family: var(--font-mono);
+		font-size: 10.5px;
 	}
 
 	textarea {

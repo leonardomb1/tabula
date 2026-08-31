@@ -1,5 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
-import { getBacklinks, getDocBySlug, resolveDocRefs } from '$lib/server/docs';
+import { getDocBySlug, resolveDocRefs } from '$lib/server/docs';
 import { renderMarkdown } from '$lib/server/markdown';
 import { getOrCompileSvg, TypstCompileError } from '$lib/server/typst';
 import { listTemplates, parseTemplateMeta } from '$lib/server/templates';
@@ -38,8 +38,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		renderError = err instanceof TypstCompileError ? err.message : 'render failed';
 	}
 
-	const [backlinks, templates, people, pending] = await Promise.all([
-		getBacklinks(doc),
+	const [templates, people, pending] = await Promise.all([
 		listTemplates(params.ws),
 		doc.updatedBy && locals.user
 			? getPeople([doc.updatedBy], params.ws)
@@ -79,11 +78,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			frontmatter: doc.frontmatter as Record<string, unknown>
 		},
 		html,
-		renderError,
-		// Cross-workspace viewers of a public doc must not see private siblings.
-		backlinks: backlinks
-			.filter((b) => b.isPublic || locals.access?.can(b.workspaceId))
-			.map((b) => ({ id: b.id, slug: b.slug, title: b.title }))
+		renderError
 	};
 };
 

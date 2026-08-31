@@ -13,8 +13,15 @@
 			try {
 				var t = localStorage.getItem('tabula-theme');
 				if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+				// Only shapes the [data-font] CSS hook; unknown values match no rule
+				// and fall back to the default, so no allowlist to keep in sync.
 				var f = localStorage.getItem('tabula-font');
-				if (f === 'serif' || f === 'sans' || f === 'mono') document.documentElement.dataset.font = f;
+				if (f && /^[a-z][a-z-]{1,23}$/.test(f)) document.documentElement.dataset.font = f;
+				var s = parseInt(localStorage.getItem('tabula-size'), 10);
+				if (s >= 14 && s <= 22) document.documentElement.style.setProperty('--read-size', s + 'px');
+				var w = parseInt(localStorage.getItem('tabula-width'), 10);
+				if (w >= 36 && w <= 90) document.documentElement.style.setProperty('--read-width', w + 'rem');
+				if (localStorage.getItem('tabula-rail') === 'closed') document.documentElement.dataset.rail = 'closed';
 			} catch (e) {}
 		</script>
 		%sveltekit.head%

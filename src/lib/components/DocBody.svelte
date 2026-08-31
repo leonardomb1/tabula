@@ -15,6 +15,63 @@
 	let root = $state<HTMLDivElement | null>(null);
 	let zoomed = $state<{ src: string; alt: string } | null>(null);
 
+	interface PeekData {
+		title: string;
+		excerpt: string;
+		tags: string[];
+	}
+	let peek = $state<{ x: number; y: number; below: boolean; data: PeekData } | null>(null);
+	const peekCache = new Map<string, PeekData | null>();
+	let peekTimer: ReturnType<typeof setTimeout> | undefined;
+	let peekAnchor: HTMLAnchorElement | null = null;
+
+	function onPointerOver(event: PointerEvent) {
+		const a = (event.target as HTMLElement | null)?.closest?.(
+			'a.wiki-link:not(.broken)'
+		) as HTMLAnchorElement | null;
+		if (!a || a === peekAnchor) return;
+		const match = a.getAttribute('href')?.match(/^\/w\/([^/]+)\/([^/?#]+)$/);
+		if (!match) return;
+		// The peek card supersedes the renderer's native title tooltip.
+		a.removeAttribute('title');
+		clearTimeout(peekTimer);
+		peekAnchor = a;
+		const [, ws, slug] = match;
+		peekTimer = setTimeout(async () => {
+			let data = peekCache.get(a.href);
+			if (data === undefined) {
+				data = await fetch(`/api/peek/${encodeURIComponent(ws)}/${encodeURIComponent(slug)}`)
+					.then((r) => (r.ok ? (r.json() as Promise<PeekData>) : null))
+					.catch(() => null);
+				peekCache.set(a.href, data);
+			}
+			if (!data || peekAnchor !== a) return;
+			const rect = a.getBoundingClientRect();
+			const below = rect.bottom + 190 < window.innerHeight;
+			peek = {
+				x: Math.max(8, Math.min(rect.left, window.innerWidth - 336)),
+				y: below ? rect.bottom + 6 : rect.top - 6,
+				below,
+				data
+			};
+		}, 300);
+	}
+
+	function onPointerOut(event: PointerEvent) {
+		if (!(event.target as HTMLElement | null)?.closest?.('a.wiki-link')) return;
+		const to = event.relatedTarget as HTMLElement | null;
+		if (to?.closest?.('.peek')) return;
+		clearTimeout(peekTimer);
+		peekAnchor = null;
+		peek = null;
+	}
+
+	function closePeek() {
+		clearTimeout(peekTimer);
+		peekAnchor = null;
+		peek = null;
+	}
+
 	const ICON =
 		'<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M9 21H3v-6M3 21l7-7"/></svg>';
 
@@ -54,16 +111,40 @@
 	}
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onscrollcapture={closePeek} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div
 	bind:this={root}
 	class={mode === 'typst' ? 'typst-body' : 'prose'}
 	onclick={onBodyClick}
+	onpointerover={onPointerOver}
+	onpointerout={onPointerOut}
 >
 	{@html html}
 </div>
+
+{#if peek}
+	<div
+		class="peek"
+		role="tooltip"
+		class:above={!peek.below}
+		style:left="{peek.x}px"
+		style:top="{peek.y}px"
+		transition:fade={{ duration: dur(100) }}
+		onpointerleave={closePeek}
+	>
+		<p class="peek-title">{peek.data.title || m.doc_untitled()}</p>
+		{#if peek.data.excerpt}
+			<p class="peek-excerpt">{peek.data.excerpt}</p>
+		{/if}
+		{#if peek.data.tags.length}
+			<p class="peek-tags">
+				{#each peek.data.tags as tag (tag)}<span>#{tag}</span>{/each}
+			</p>
+		{/if}
+	</div>
+{/if}
 
 {#if zoomed}
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -89,6 +170,52 @@
 {/if}
 
 <style>
+	.peek {
+		position: fixed;
+		z-index: 55;
+		width: 328px;
+		padding: 11px 13px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface);
+		box-shadow: var(--shadow);
+		pointer-events: auto;
+	}
+	.peek.above {
+		transform: translateY(-100%);
+	}
+	.peek-title {
+		margin: 0 0 4px;
+		font-family: var(--font-display);
+		font-size: 14px;
+		font-weight: 600;
+		line-height: 1.3;
+	}
+	.peek-excerpt {
+		margin: 0;
+		font-size: 12.5px;
+		line-height: 1.5;
+		color: var(--text-muted);
+		display: -webkit-box;
+		-webkit-line-clamp: 4;
+		line-clamp: 4;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+	.peek-tags {
+		margin: 7px 0 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 5px;
+	}
+	.peek-tags span {
+		font-size: 10.5px;
+		color: var(--text-faint);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		padding: 1px 7px;
+	}
+
 	.scrim {
 		position: fixed;
 		inset: 0;

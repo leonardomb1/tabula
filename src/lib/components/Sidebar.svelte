@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import * as m from '$lib/paraglide/messages';
-	import { docHref, templatesHref, toggleTag, workspaceHref } from '$lib/nav';
+	import { connectionsHref, docHref, templatesHref, toggleTag, workspaceHref } from '$lib/nav';
 	import PrefsMenu from './PrefsMenu.svelte';
 	import { PRODUCT_NAME, type Branding } from '$lib/branding';
 	import type { TagCount } from '$lib/docs';
@@ -29,7 +29,8 @@
 		canWrite = false,
 		onOpenSearch,
 		onOpenSettings,
-		onOpenWorkspaces
+		onOpenWorkspaces,
+		ontoggle
 	}: {
 		workspaces: WorkspaceRef[];
 		current: WorkspaceRef;
@@ -42,6 +43,7 @@
 		onOpenSearch: () => void;
 		onOpenSettings: () => void;
 		onOpenWorkspaces: () => void;
+		ontoggle?: () => void;
 	} = $props();
 
 	let modKey = $state('Ctrl');
@@ -57,26 +59,41 @@
 
 <aside class="rail">
 	<div class="rail-top">
-		<a
-			class="brand"
-			class:no-neg={!branding?.logoNegativeUrl}
-			href={workspaceHref(current.id)}
-			aria-label={branding?.name ?? PRODUCT_NAME}
-		>
-			{#if branding?.logoUrl && !logoFailed}
-				<img
-					class="pos"
-					src={branding.logoUrl}
-					alt={branding.name}
-					onerror={() => (logoFailed = true)}
-				/>
-				{#if branding.logoNegativeUrl}
-					<img class="neg" src={branding.logoNegativeUrl} alt="" aria-hidden="true" />
+		<div class="rail-head">
+			<a
+				class="brand"
+				class:no-neg={!branding?.logoNegativeUrl}
+				href={workspaceHref(current.id)}
+				aria-label={branding?.name ?? PRODUCT_NAME}
+			>
+				{#if branding?.logoUrl && !logoFailed}
+					<img
+						class="pos"
+						src={branding.logoUrl}
+						alt={branding.name}
+						onerror={() => (logoFailed = true)}
+					/>
+					{#if branding.logoNegativeUrl}
+						<img class="neg" src={branding.logoNegativeUrl} alt="" aria-hidden="true" />
+					{/if}
+				{:else}
+					<span class="wordmark">{branding?.name ?? PRODUCT_NAME}</span>
 				{/if}
-			{:else}
-				<span class="wordmark">{branding?.name ?? PRODUCT_NAME}</span>
+			</a>
+			{#if ontoggle}
+				<button
+					type="button"
+					class="rail-hide"
+					aria-label={m.sidebar_hide()}
+					title={m.sidebar_hide()}
+					onclick={ontoggle}
+				>
+					<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<path d="M3 5h18v14H3zM9 5v14M17 10l-2 2 2 2" />
+					</svg>
+				</button>
 			{/if}
-		</a>
+		</div>
 
 		<button type="button" class="search" onclick={onOpenSearch}>
 			<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
@@ -101,14 +118,6 @@
 			<span class="count">{total}</span>
 		</a>
 
-		<a class="item" href="/wiki">
-			<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<circle cx="12" cy="12" r="9" />
-				<path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
-			</svg>
-			<span class="label">{m.wiki_title()}</span>
-		</a>
-
 		{#if canWrite}
 			<a class="item" class:active={activePath === templatesHref(current.id)} href={templatesHref(current.id)}>
 				<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -118,6 +127,16 @@
 				<span class="label">{m.templates()}</span>
 			</a>
 		{/if}
+
+		<a class="item" class:active={activePath === connectionsHref(current.id)} href={connectionsHref(current.id)}>
+			<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+				<circle cx="18" cy="5" r="3" />
+				<circle cx="6" cy="12" r="3" />
+				<circle cx="18" cy="19" r="3" />
+				<path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98" />
+			</svg>
+			<span class="label">{m.nav_connections()}</span>
+		</a>
 
 		{#if recent.length > 0}
 			<p class="head">{m.sidebar_recent()}</p>
@@ -163,6 +182,31 @@
 		view-transition-name: rail;
 	}
 
+	.rail-head {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 4px;
+	}
+
+	.rail-hide {
+		flex: none;
+		display: grid;
+		place-items: center;
+		width: 28px;
+		height: 28px;
+		border: 0;
+		border-radius: var(--radius-sm);
+		background: none;
+		color: var(--text-faint);
+		cursor: pointer;
+		transition: background-color 120ms ease, color 120ms ease;
+	}
+	.rail-hide:hover {
+		background: var(--surface-hover);
+		color: var(--text);
+	}
+
 	.rail-top {
 		padding: 8px;
 		display: flex;
@@ -171,11 +215,12 @@
 	}
 
 	.brand {
+		flex: 1;
+		min-width: 0;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		height: 46px;
-		margin-bottom: 4px;
 		padding: 0 8px;
 		border-radius: var(--radius-sm);
 		transition: background-color 120ms ease;

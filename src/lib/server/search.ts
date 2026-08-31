@@ -81,6 +81,62 @@ function fuse(lexical: SearchHit[], semantic: SearchHit[], limit: number): Searc
 		.map(({ hit, score }) => ({ ...hit, rank: Math.round(score * 1000) / 1000 }));
 }
 
+function accessGate(access: Access): SQL {
+	const ids = access.accessibleWorkspaceIds();
+	const idArray = sql`array[${sql.join(
+		ids.map((id) => sql`${id}`),
+		sql`, `
+	)}]::text[]`;
+	return access.principal.isPlatformAdmin
+		? sql`true`
+		: sql`(workspace_id = ANY(${idArray}) OR is_public = true)`;
+}
+
+export interface ChunkHit {
+	id: string;
+	workspaceId: string;
+	slug: string;
+	title: string;
+	seq: number;
+	content: string;
+	similarity: number;
+}
+
+/**
+ * Pure embedding search at chunk granularity — entry points for an agent
+ * walking the document graph. Returns the matching chunk text itself, unlike
+ * searchDocs which returns lexical headlines. Empty when embeddings are off.
+ */
+export async function searchChunks(
+	access: Access,
+	opts: { query: string; workspaceId?: string; limit?: number }
+): Promise<ChunkHit[]> {
+	ensureSemanticIndexer();
+	const q = opts.query.trim();
+	if (!q || !embeddingsConfigured()) return [];
+
+	const limit = Math.min(opts.limit ?? 8, 20);
+	const gate = accessGate(access);
+	const wsFilter = opts.workspaceId ? sql`AND workspace_id = ${opts.workspaceId}` : sql``;
+	try {
+		const vec = await embedQuery(q);
+		const rows = await db.execute(sql`
+			SELECT docs.id, workspace_id AS "workspaceId", slug, title, c.seq, c.content,
+				round((1 - (c.embedding <=> ${vec}::vector))::numeric, 3)::float AS similarity
+			FROM doc_chunks c
+			JOIN docs ON docs.id = c.doc_id
+			WHERE ${visibleDocs} AND ${gate} ${wsFilter}
+				AND c.model = ${embeddingsModel()}
+			ORDER BY c.embedding <=> ${vec}::vector
+			LIMIT ${limit}
+		`);
+		return rows as unknown as ChunkHit[];
+	} catch (err) {
+		console.warn('chunk search unavailable:', err instanceof Error ? err.message : err);
+		return [];
+	}
+}
+
 export async function searchDocs(access: Access, opts: SearchOptions): Promise<SearchHit[]> {
 	ensureSemanticIndexer();
 	const q = opts.query.trim();
@@ -89,14 +145,7 @@ export async function searchDocs(access: Access, opts: SearchOptions): Promise<S
 	const limit = Math.min(opts.limit ?? 20, 100);
 	const offset = opts.offset ?? 0;
 
-	const ids = access.accessibleWorkspaceIds();
-	const idArray = sql`array[${sql.join(
-		ids.map((id) => sql`${id}`),
-		sql`, `
-	)}]::text[]`;
-	const gate = access.principal.isPlatformAdmin
-		? sql`true`
-		: sql`(workspace_id = ANY(${idArray}) OR is_public = true)`;
+	const gate = accessGate(access);
 	const wsFilter = opts.workspaceId ? sql`AND workspace_id = ${opts.workspaceId}` : sql``;
 
 	const ptq = sql`websearch_to_tsquery('public.pt_unaccent', ${q})`;
