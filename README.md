@@ -149,3 +149,7 @@ deploy/             Caddyfile
 db/init/            Postgres extension bootstrap
 scripts/            migrations + smoke tests
 ```
+
+## License
+
+[Apache-2.0](LICENSE)
