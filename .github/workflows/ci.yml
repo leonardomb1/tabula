@@ -1,11 +1,42 @@
 name: CI
 
+# Arquivos que não entram na imagem nem no type check (espelha o .dockerignore)
+# não disparam o pipeline. O filtro só pula quando TODOS os arquivos do push
+# batem na lista; misturou com código-fonte, roda normal. Pushes de tag v*
+# ignoram filtros de path e sempre disparam.
+# Atenção: paths-ignore não aceita negação (!) — se um dia messages/ ganhar
+# arquivos .md consumidos pelo app, troque '**.md' por caminhos explícitos.
 on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      # GitHub Actions não suporta âncoras YAML; a lista se repete no pull_request.
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.claude/**'
+      - '.mcp.json'
+      - '.vscode/**'
+      - '.env.example'
+      - 'typst/**'
+      - 'deploy/**'
+      - 'docker-compose*.yml'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.gitattributes'
+      - '.claude/**'
+      - '.mcp.json'
+      - '.vscode/**'
+      - '.env.example'
+      - 'typst/**'
+      - 'deploy/**'
+      - 'docker-compose*.yml'
   workflow_dispatch: # enables the "Run workflow" button in the Actions tab
 
 env:
