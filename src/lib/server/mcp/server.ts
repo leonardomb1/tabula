@@ -28,7 +28,7 @@ import { applyEdits, lineCount, withLineNumbers, type Edit } from '../patch';
 import { getPublishedDoc, openPublishRequest, requestPublish, onDocUpdated } from '../publication';
 import { ensureWorkspace, listWorkspaces } from '../workspaces';
 import { getTemplate, listTemplates, parseTemplateMeta, subjectInputs } from '../templates';
-import { renderMarkdown } from '../markdown';
+import { parseFrontmatter, renderMarkdown } from '../markdown';
 import { renderMarkdownToPdfKeyed } from '../markdown/pdf';
 import { compileSvg, explainCompileError, TypstCompileError } from '../typst';
 import { signArtifact } from '../artifacts';
@@ -787,7 +787,11 @@ export function buildMcpServer(access: Access): McpServer {
 				tags: args.tags ?? [],
 				workspaceId: args.workspaceId,
 				date: new Date(),
-				author: await formalNameFor(access.principal.username)
+				author: await formalNameFor(access.principal.username),
+				// The content carries its own frontmatter (stored docs and literal
+				// bodies alike); without it every fm.* key a template reads is
+				// silently empty. Explicit options still override, as in the dialog.
+				frontmatter: parseFrontmatter(args.content).data
 			},
 			args.options ?? {}
 		);
