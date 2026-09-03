@@ -2,7 +2,14 @@ import { sql, type SQL } from 'drizzle-orm';
 import { db } from './db';
 import type { Access } from './access';
 import { visibleDocs } from './visibility';
-import { embedQuery, embeddingsConfigured, embeddingsModel } from './semantic/embeddings';
+import {
+	embedQuery,
+	embeddingsConfigured,
+	embeddingsModel,
+	embeddingCast,
+	embeddingColumn,
+	literalDimensions
+} from './semantic/embeddings';
 import { ensureSemanticIndexer } from './semantic';
 
 export interface SearchOptions {
@@ -43,17 +50,20 @@ async function semanticDocRanking(
 	if (!embeddingsConfigured()) return [];
 	try {
 		const vec = await embedQuery(q);
+		const dims = literalDimensions(vec);
+		const col = sql.raw(`c.${embeddingColumn(dims)}`);
+		const cast = sql.raw(embeddingCast(dims));
 		const rows = await db.execute(sql`
 			SELECT DISTINCT ON (docs.id)
 				docs.id, workspace_id AS "workspaceId", slug, title, mode,
 				is_public AS "isPublic", updated_at AS "updatedAt",
-				1 - (c.embedding <=> ${vec}::vector) AS rank,
+				1 - (${col} <=> ${vec}::${cast}) AS rank,
 				left(c.content, 240) AS snippet
 			FROM doc_chunks c
 			JOIN docs ON docs.id = c.doc_id
 			WHERE ${visibleDocs} AND ${gate} ${wsFilter}
-				AND c.model = ${embeddingsModel()}
-			ORDER BY docs.id, c.embedding <=> ${vec}::vector
+				AND c.model = ${embeddingsModel()} AND ${col} IS NOT NULL
+			ORDER BY docs.id, ${col} <=> ${vec}::${cast}
 		`);
 		return (rows as unknown as SearchHit[])
 			.sort((a, b) => b.rank - a.rank)
@@ -120,14 +130,17 @@ export async function searchChunks(
 	const wsFilter = opts.workspaceId ? sql`AND workspace_id = ${opts.workspaceId}` : sql``;
 	try {
 		const vec = await embedQuery(q);
+		const dims = literalDimensions(vec);
+		const col = sql.raw(`c.${embeddingColumn(dims)}`);
+		const cast = sql.raw(embeddingCast(dims));
 		const rows = await db.execute(sql`
 			SELECT docs.id, workspace_id AS "workspaceId", slug, title, c.seq, c.content,
-				round((1 - (c.embedding <=> ${vec}::vector))::numeric, 3)::float AS similarity
+				round((1 - (${col} <=> ${vec}::${cast}))::numeric, 3)::float AS similarity
 			FROM doc_chunks c
 			JOIN docs ON docs.id = c.doc_id
 			WHERE ${visibleDocs} AND ${gate} ${wsFilter}
-				AND c.model = ${embeddingsModel()}
-			ORDER BY c.embedding <=> ${vec}::vector
+				AND c.model = ${embeddingsModel()} AND ${col} IS NOT NULL
+			ORDER BY ${col} <=> ${vec}::${cast}
 			LIMIT ${limit}
 		`);
 		return rows as unknown as ChunkHit[];

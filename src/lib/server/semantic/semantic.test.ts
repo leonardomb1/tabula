@@ -6,7 +6,13 @@
  */
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test';
 import { chunkText } from './chunk';
-import { embedTexts, embedQuery, vectorLiteral } from './embeddings';
+import {
+	embedTexts,
+	embedQuery,
+	vectorLiteral,
+	embeddingColumn,
+	literalDimensions
+} from './embeddings';
 
 const ENV = { ...process.env };
 afterEach(() => {
@@ -92,3 +98,47 @@ test('429 with Retry-After is waited out', async () => {
 	expect(out.length).toBe(2);
 	expect(performance.now() - t0).toBeGreaterThan(1900);
 }, 20_000);
+
+test('embeddingColumn whitelists the multi-dimension columns (0008)', () => {
+	expect(embeddingColumn(1024)).toBe('embedding_1024');
+	expect(embeddingColumn(1536)).toBe('embedding_1536');
+	expect(() => embeddingColumn(4096)).toThrow(/no column for 4096/);
+	expect(() => embeddingColumn(0)).toThrow();
+});
+
+test('literalDimensions reads a vector literal without parsing it', () => {
+	expect(literalDimensions(vectorLiteral(new Float32Array([1, 0, 0])))).toBe(3);
+	expect(literalDimensions(vectorLiteral(new Float32Array(1024)))).toBe(1024);
+});
+
+test('EMBEDDINGS_DIMENSIONS rides as `dimensions` (or output_dimension for Voyage)', async () => {
+	const bodies: Record<string, unknown>[] = [];
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+		const body = JSON.parse(String(init?.body));
+		bodies.push(body);
+		const n = Array.isArray(body.input) ? body.input.length : 1;
+		return Response.json({
+			data: Array.from({ length: n }, (_, i) => ({ index: i, embedding: [1, 0] }))
+		});
+	}) as typeof fetch;
+	try {
+		process.env.EMBEDDINGS_BASE_URL = 'https://azure.example/v1';
+		process.env.EMBEDDINGS_DIMENSIONS = '1024';
+		await embedQuery('x');
+		expect(bodies[0].dimensions).toBe(1024);
+		expect(bodies[0].output_dimension).toBeUndefined();
+
+		process.env.EMBEDDINGS_BASE_URL = 'https://api.voyageai.com/v1';
+		await embedQuery('x');
+		expect(bodies[1].output_dimension).toBe(1024);
+		expect(bodies[1].dimensions).toBeUndefined();
+
+		delete process.env.EMBEDDINGS_DIMENSIONS;
+		await embedQuery('x');
+		expect(bodies[2].dimensions).toBeUndefined();
+		expect(bodies[2].output_dimension).toBeUndefined();
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});

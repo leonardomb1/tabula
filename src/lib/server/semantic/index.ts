@@ -22,7 +22,14 @@ import { db } from '../db';
 import { docs, docChunks } from '../db/schema';
 import { visibleDocs } from '../visibility';
 import { chunkText } from './chunk';
-import { embedTexts, embeddingsConfigured, embeddingsModel } from './embeddings';
+import {
+	embedTexts,
+	embeddingsConfigured,
+	embeddingsModel,
+	embeddingCast,
+	embeddingColumn,
+	literalDimensions
+} from './embeddings';
 
 const TICK_MS = 60_000;
 const KICK_DELAY_MS = 3_000;
@@ -92,6 +99,11 @@ export async function indexPendingDocs(): Promise<number> {
 		if (chunks.length === 0) continue;
 
 		const vectors = await embedTexts(chunks);
+		// Column dispatch by the model's actual output size — whitelisted, so
+		// the raw interpolation below can only ever name a real column.
+		const dims = literalDimensions(vectors[0]);
+		const column = sql.raw(embeddingColumn(dims));
+		const cast = sql.raw(embeddingCast(dims));
 
 		await db.transaction(async (tx) => {
 			// The doc may have moved on while Azure worked; writing would stamp
@@ -105,8 +117,8 @@ export async function indexPendingDocs(): Promise<number> {
 			await tx.execute(sql`delete from ${docChunks} where ${docChunks.docId} = ${doc.id}`);
 			for (let i = 0; i < chunks.length; i++) {
 				await tx.execute(sql`
-					insert into ${docChunks} (doc_id, seq, rev, model, content, embedding)
-					values (${doc.id}, ${i}, ${doc.rev}, ${model}, ${chunks[i]}, ${vectors[i]}::vector)
+					insert into ${docChunks} (doc_id, seq, rev, model, content, ${column})
+					values (${doc.id}, ${i}, ${doc.rev}, ${model}, ${chunks[i]}, ${vectors[i]}::${cast})
 				`);
 			}
 		});

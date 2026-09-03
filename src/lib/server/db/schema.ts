@@ -21,12 +21,20 @@ const tsvector = customType<{ data: string }>({
 	}
 });
 
-/** pgvector column. The dimension is part of the type — see 0006_semantic_chunks. */
-const vector1536 = customType<{ data: string }>({
-	dataType() {
-		return 'vector(1536)';
-	}
-});
+/** pgvector column. The dimension is part of the type — see 0008_portable_embeddings. */
+const vectorType = (dimensions: number) =>
+	customType<{ data: string }>({
+		dataType() {
+			return `vector(${dimensions})`;
+		}
+	});
+/** fp16 variant — HNSW over plain vector caps at 2000 dims (see 0008). */
+const halfvecType = (dimensions: number) =>
+	customType<{ data: string }>({
+		dataType() {
+			return `halfvec(${dimensions})`;
+		}
+	});
 
 export const roleEnum = pgEnum('role', ['viewer', 'editor', 'maintainer']);
 export const docModeEnum = pgEnum('doc_mode', ['markdown', 'typst']);
@@ -350,7 +358,14 @@ export const docChunks = pgTable(
 		rev: integer('rev').notNull(),
 		model: text('model').notNull(),
 		content: text('content').notNull(),
-		embedding: vector1536('embedding').notNull(),
+		// One column per supported dimension; exactly one is non-null per row
+		// (CHECK in 0008). The indexer writes whichever matches the model's
+		// output; search reads the one matching the query vector.
+		embedding768: vectorType(768)('embedding_768'),
+		embedding1024: vectorType(1024)('embedding_1024'),
+		embedding1536: vectorType(1536)('embedding_1536'),
+		embedding2048: halfvecType(2048)('embedding_2048'),
+		embedding3072: halfvecType(3072)('embedding_3072'),
 		createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 	},
 	(t) => [

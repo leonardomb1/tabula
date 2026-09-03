@@ -23,6 +23,41 @@ export function embeddingsModel(): string {
 	return process.env.EMBEDDINGS_MODEL || 'text-embedding-3-small';
 }
 
+/**
+ * Optional requested output size (Matryoshka truncation). Sent as OpenAI's
+ * `dimensions` — or Voyage's `output_dimension` when the base URL is Voyage —
+ * so the same env works across providers. Unset = the model's native size.
+ */
+function requestedDimensions(): number | null {
+	const n = Number(process.env.EMBEDDINGS_DIMENSIONS);
+	return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** The doc_chunks columns that exist — one per dimension (0008). */
+export const SUPPORTED_DIMS = [768, 1024, 1536, 2048, 3072] as const;
+
+/** Whitelisted column name for a vector's dimension — never interpolate raw. */
+export function embeddingColumn(dimensions: number): string {
+	if (!(SUPPORTED_DIMS as readonly number[]).includes(dimensions)) {
+		throw new Error(
+			`embeddings: no column for ${dimensions}-dim vectors (supported: ${SUPPORTED_DIMS.join(', ')}) — set EMBEDDINGS_DIMENSIONS to one of them`
+		);
+	}
+	return `embedding_${dimensions}`;
+}
+
+/** The pgvector type of a dimension's column: halfvec above HNSW's 2000-dim cap. */
+export function embeddingCast(dimensions: number): 'vector' | 'halfvec' {
+	return dimensions > 2000 ? 'halfvec' : 'vector';
+}
+
+/** Dimension of a pgvector literal built by vectorLiteral. */
+export function literalDimensions(literal: string): number {
+	let commas = 0;
+	for (let i = 0; i < literal.length; i++) if (literal.charCodeAt(i) === 44) commas++;
+	return commas + 1;
+}
+
 function timeoutMs(): number {
 	const n = Number(process.env.EMBEDDINGS_TIMEOUT_MS || 30_000);
 	return Number.isFinite(n) && n > 0 ? n : 30_000;
@@ -61,7 +96,15 @@ async function requestEmbeddings(inputs: string[]): Promise<Float32Array[]> {
 				// Both header styles: Azure wants api-key, everyone else a bearer.
 				...(key ? { authorization: `Bearer ${key}`, 'api-key': key } : {})
 			},
-			body: JSON.stringify({ model: embeddingsModel(), input: inputs }),
+			body: JSON.stringify({
+				model: embeddingsModel(),
+				input: inputs,
+				...(requestedDimensions()
+					? base.includes('voyageai')
+						? { output_dimension: requestedDimensions() }
+						: { dimensions: requestedDimensions() }
+					: {})
+			}),
 			signal: AbortSignal.timeout(timeoutMs())
 		});
 		// Azure S0 quotas throttle a large document mid-way as a matter of course;
