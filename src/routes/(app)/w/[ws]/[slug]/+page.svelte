@@ -57,6 +57,28 @@
 	<title>{data.doc.title || m.doc_untitled()}</title>
 </svelte:head>
 
+{#if data.codeView}
+	<article class="code-doc">
+		<header class="code-head">
+			<h1>
+				<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+					<path d="M14 3v5h5" />
+				</svg>
+				{data.doc.title}
+			</h1>
+			<span class="code-meta">
+				{m.doc_updated({ when: formatDate(data.doc.updatedAt, locale) })}
+				· <a href={historyHref(wsId, data.doc.slug)}>{m.doc_history()}</a>
+			</span>
+		</header>
+		{#if data.renderError}
+			<p class="render-error">{data.renderError}</p>
+		{:else}
+			<div class="code-view">{@html data.html}</div>
+		{/if}
+	</article>
+{:else}
 <article class="doc">
 	<header>
 		<div class="top">
@@ -130,6 +152,7 @@
 	{/if}
 
 </article>
+{/if}
 
 <ExportDialog
 	bind:open={exportOpen}
@@ -443,6 +466,78 @@
 		border: 1px solid var(--border-strong);
 	}
 
+
+	.code-doc {
+		max-width: 1100px;
+		margin: 0 auto;
+		padding: 28px 32px 80px;
+	}
+	.code-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 8px 16px;
+		margin-bottom: 14px;
+	}
+	.code-head h1 {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin: 0;
+		font-family: var(--font-mono);
+		font-size: 15px;
+		font-weight: 600;
+		word-break: break-all;
+	}
+	.code-head svg {
+		flex: none;
+		color: var(--text-faint);
+	}
+	.code-meta {
+		font-size: 12px;
+		color: var(--text-faint);
+	}
+	.code-meta a {
+		color: var(--text-muted);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
+
+	/* The rendered file is one shiki block; give it the editor treatment:
+	   full width, line numbers via counters on shiki's .line spans. */
+	.code-view :global(pre) {
+		margin: 0;
+		padding: 14px 0;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		overflow-x: auto;
+		font-size: 13px;
+		line-height: 1.6;
+	}
+	.code-view :global(code) {
+		display: block;
+		counter-reset: line;
+		font-family: var(--font-mono);
+	}
+	.code-view :global(code .line) {
+		display: inline-block;
+		width: 100%;
+		padding-inline: 12px;
+	}
+	.code-view :global(code .line)::before {
+		counter-increment: line;
+		content: counter(line);
+		display: inline-block;
+		width: 3.2em;
+		margin-inline-end: 14px;
+		text-align: right;
+		color: var(--text-faint);
+		user-select: none;
+	}
+	.code-view :global(code .line:hover) {
+		background: var(--surface-hover);
+	}
 
 	@media (max-width: 720px) {
 		.doc {

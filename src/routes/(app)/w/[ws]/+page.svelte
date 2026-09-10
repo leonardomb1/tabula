@@ -1,22 +1,27 @@
 <script lang="ts">
 	import DocIndex from '$lib/components/DocIndex.svelte';
 	import DraftTray from '$lib/components/DraftTray.svelte';
+	import RepoBrowser from '$lib/components/RepoBrowser.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 </script>
 
-<DocIndex
-	workspace={data.workspace}
-	page={data.page}
-	activeTags={data.tags}
-	sort={data.sort}
-	canWrite={data.canWrite}
-/>
+{#if 'repoFiles' in data && data.repoFiles}
+	<RepoBrowser workspaceId={data.workspace.id} name={data.workspace.name} files={data.repoFiles} />
+{:else if 'page' in data}
+	<DocIndex
+		workspace={data.workspace}
+		page={data.page}
+		activeTags={data.tags}
+		sort={data.sort}
+		canWrite={data.canWrite}
+	/>
 
-<div class="tray-wrap">
-	<DraftTray workspaceId={data.workspace.id} drafts={data.drafts} />
-</div>
+	<div class="tray-wrap">
+		<DraftTray workspaceId={data.workspace.id} drafts={data.drafts} />
+	</div>
+{/if}
 
 <style>
 	/* Matches DocIndex's own column so the tray lines up under the doc list. */

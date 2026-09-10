@@ -4,7 +4,7 @@ import { renderMarkdown } from '$lib/server/markdown';
 import { getOrCompileSvg, TypstCompileError } from '$lib/server/typst';
 import { listTemplates, parseTemplateMeta } from '$lib/server/templates';
 import { getPeople, unknownPerson } from '$lib/server/people';
-import { getPolicy } from '$lib/server/workspaces';
+import { getPolicy, getWorkspace } from '$lib/server/workspaces';
 import { docsWritable } from '$lib/server/repo/sync';
 import {
 	openPublishRequest,
@@ -22,6 +22,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const doc = await getDocBySlug(params.ws, params.slug);
 	if (!doc) error(404);
 	if (!doc.isPublic && !locals.access?.can(params.ws)) error(403);
+	const workspace = await getWorkspace(params.ws);
+	// Repo files render in the code viewer, not the prose reader.
+	const codeView = workspace?.kind === 'repo';
 
 	let html = '';
 	let renderError: string | null = null;
@@ -79,7 +82,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			frontmatter: doc.frontmatter as Record<string, unknown>
 		},
 		html,
-		renderError
+		renderError,
+		codeView
 	};
 };
 

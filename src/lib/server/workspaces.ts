@@ -6,7 +6,7 @@ import { workspaceBindings, workspaces, type Workspace, type WorkspaceBinding } 
 import { sanitizePolicy, type WorkspacePolicy } from '$lib/policy';
 import type { Role } from './access';
 
-export type WorkspaceKind = 'system' | 'team' | 'personal';
+export type WorkspaceKind = 'system' | 'team' | 'personal' | 'repo';
 
 export class WorkspaceExistsError extends Error {
 	constructor(id: string) {

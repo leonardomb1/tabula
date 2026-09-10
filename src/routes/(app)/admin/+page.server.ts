@@ -14,18 +14,14 @@ import {
 	upsertBinding,
 	WorkspaceExistsError
 } from '$lib/server/workspaces';
-import { syncRepoWorkspace, type RepoConfig } from '$lib/server/repo/sync';
-import { db } from '$lib/server/db';
-import { workspaces as workspacesTable } from '$lib/server/db/schema';
-import { eq, sql } from 'drizzle-orm';
 import type { Actions, PageServerLoad } from './$types';
 
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 const RESERVED = new Set(['default']);
 const ROLE_SET = new Set<Role>(ROLES);
 
-type Section = 'general' | 'access' | 'policy' | 'review' | 'repo';
-const SECTIONS: Section[] = ['general', 'access', 'policy', 'review', 'repo'];
+type Section = 'general' | 'access' | 'policy' | 'review';
+const SECTIONS: Section[] = ['general', 'access', 'policy', 'review'];
 
 async function manageable(locals: App.Locals) {
 	const { access } = requireUser(locals);
@@ -47,21 +43,6 @@ function requireMaintainer(locals: App.Locals, ws: string) {
 	return ctx;
 }
 
-/** Repo config as shown to admins: everything but the token itself. */
-function repoView(cfg: RepoConfig | null) {
-	return {
-		url: cfg?.url ?? '',
-		branch: cfg?.branch ?? 'main',
-		username: cfg?.username ?? '',
-		hasToken: !!cfg?.token,
-		include: (cfg?.include ?? []).join(', '),
-		lastCommit: cfg?.lastCommit ?? '',
-		lastSyncAt: cfg?.lastSyncAt ?? '',
-		lastError: cfg?.lastError ?? null,
-		fileCount: cfg?.fileCount ?? 0,
-		skipped: cfg?.skipped ?? null
-	};
-}
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const { user } = requireUser(locals);
@@ -91,7 +72,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					name: current.name,
 					kind: current.kind,
 					deletable: current.kind !== 'system',
-					repo: repoView(current.repo as RepoConfig | null),
 					policy: sanitizePolicy(current.policy),
 					bindings: bindings
 						.map((b) => ({ id: b.id, attribute: b.attribute, value: b.value, role: b.role }))
@@ -191,44 +171,5 @@ export const actions: Actions = {
 		const candidate = sanitizePolicy(parsed);
 		await updatePolicy(ws, candidate);
 		return { saved: true };
-	},
-
-	repoSave: async ({ request, locals }) => {
-		const data = await request.formData();
-		const ws = String(data.get('ws') ?? '');
-		requireMaintainer(locals, ws);
-
-		const url = String(data.get('url') ?? '').trim();
-		const branch = String(data.get('branch') ?? '').trim() || 'main';
-		const username = String(data.get('username') ?? '').trim();
-		const token = String(data.get('token') ?? '').trim();
-		const include = String(data.get('include') ?? '')
-			.split(',')
-			.map((s) => s.trim())
-			.filter(Boolean);
-		if (!url) return fail(400, { error: 'repo_url_required' });
-
-		// A blank token field keeps the stored one; changing it is explicit.
-		const patch: Partial<RepoConfig> = { url, branch, username, include };
-		if (token) patch.token = token;
-
-		await db
-			.update(workspacesTable)
-			.set({
-				repo: sql`coalesce(${workspacesTable.repo}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`
-			})
-			.where(eq(workspacesTable.id, ws));
-		return { saved: true };
-	},
-
-	repoSync: async ({ request, locals }) => {
-		const data = await request.formData();
-		const ws = String(data.get('ws') ?? '');
-		requireMaintainer(locals, ws);
-		try {
-			return { sync: await syncRepoWorkspace(ws) };
-		} catch (err) {
-			return fail(422, { error: err instanceof Error ? err.message : 'sync failed' });
-		}
 	}
 };

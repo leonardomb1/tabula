@@ -2,7 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { getWorkspace } from '$lib/server/workspaces';
 import { loadIndexData } from '$lib/server/docsQuery';
 import { discardDraft, listDrafts } from '$lib/server/drafts';
-import { getDoc, promoteDoc } from '$lib/server/docs';
+import { getDoc, listDocs, promoteDoc } from '$lib/server/docs';
 import { personalWorkspaceId } from '$lib/server/ids';
 import { requireUser } from '$lib/server/apiGuards';
 import type { Actions, PageServerLoad } from './$types';
@@ -11,6 +11,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	if (!locals.access?.can(params.ws)) error(403);
 	const workspace = await getWorkspace(params.ws);
 	if (!workspace) error(404);
+
+	// A repo mirror is a codebase, not a doc list — it gets the file browser.
+	if (workspace.kind === 'repo') {
+		const files = (await listDocs(params.ws)).map((d) => ({ slug: d.slug, path: d.title }));
+		return { workspace, repoFiles: files };
+	}
 
 	// Drafts are only ever shown in their owner's own personal workspace: they are
 	// half-finished by nature, and nobody else has a reason to see them.

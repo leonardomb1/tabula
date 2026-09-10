@@ -42,7 +42,8 @@
 	const kindLabel: Record<string, () => string> = {
 		team: m.workspace_kind_team,
 		personal: m.workspace_kind_personal,
-		system: m.workspace_kind_system
+		system: m.workspace_kind_system,
+		repo: m.workspace_kind_repo
 	};
 
 	function close() {
@@ -116,9 +117,20 @@
 							onmouseenter={() => (cursor = i)}
 							onclick={() => pick(ws)}
 						>
-							<span class="badge" style="background: oklch(0.58 0.13 {hueFor(ws.id)})">
-								{[...ws.name][0]?.toUpperCase() ?? '?'}
-							</span>
+							{#if ws.kind === 'repo'}
+								<span class="badge git" aria-hidden="true">
+									<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+										<circle cx="6" cy="6" r="2.6" />
+										<circle cx="6" cy="18" r="2.6" />
+										<circle cx="18" cy="8" r="2.6" />
+										<path d="M6 8.6v6.8M18 10.6c0 3.4-3 4.4-6 4.4H9" />
+									</svg>
+								</span>
+							{:else}
+								<span class="badge" style="background: oklch(0.58 0.13 {hueFor(ws.id)})">
+									{[...ws.name][0]?.toUpperCase() ?? '?'}
+								</span>
+							{/if}
 							<span class="main">
 								<span class="name">{ws.name}</span>
 								<span class="meta">
@@ -228,6 +240,12 @@
 		color: #fff;
 		font-size: 11.5px;
 		font-weight: 700;
+	}
+	.badge.git {
+		background: var(--border-strong);
+		color: #fff;
+		display: grid;
+		place-items: center;
 	}
 
 	.main {

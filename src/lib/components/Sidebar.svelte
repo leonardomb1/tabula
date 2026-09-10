@@ -10,6 +10,7 @@
 	interface WorkspaceRef {
 		id: string;
 		name: string;
+		kind?: string;
 		role: string | null;
 	}
 	interface RecentDoc {
@@ -111,10 +112,20 @@
 			class:active={activePath === workspaceHref(current.id) && activeTags.length === 0}
 			href={workspaceHref(current.id)}
 		>
-			<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-				<path d="M4 5h16M4 12h16M4 19h10" />
-			</svg>
-			<span class="label">{m.nav_all_docs()}</span>
+			{#if current.kind === 'repo'}
+				<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<circle cx="6" cy="6" r="2.6" />
+					<circle cx="6" cy="18" r="2.6" />
+					<circle cx="18" cy="8" r="2.6" />
+					<path d="M6 8.6v6.8M18 10.6c0 3.4-3 4.4-6 4.4H9" />
+				</svg>
+				<span class="label">{m.repo_files()}</span>
+			{:else}
+				<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+					<path d="M4 5h16M4 12h16M4 19h10" />
+				</svg>
+				<span class="label">{m.nav_all_docs()}</span>
+			{/if}
 			<span class="count">{total}</span>
 		</a>
 

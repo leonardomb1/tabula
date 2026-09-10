@@ -30,6 +30,8 @@ export interface RepoConfig {
 	lastError?: string | null;
 	fileCount?: number;
 	skipped?: SkipCounts;
+	/** Shared secret for the sync webhook; unset = webhook disabled. */
+	webhookSecret?: string;
 }
 
 export interface SkipCounts {
