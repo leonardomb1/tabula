@@ -227,7 +227,7 @@ export function buildMcpServer(access: Access): McpServer {
 		{
 			title: 'List documents',
 			description:
-				'List documents in a workspace the caller can access. Drafts are excluded unless includeDrafts is set — use list_drafts for those.',
+				'List documents in a workspace the caller can access. Drafts are excluded unless includeDrafts is set — use list_drafts for those. In repo-mirror workspaces each row carries repoPath, and updatedAt is when the mirror last saw the file change.',
 			inputSchema: {
 				workspaceId: z.string(),
 				includeDrafts: z.boolean().optional().describe('Include unfinished drafts in the listing')
@@ -237,15 +237,20 @@ export function buildMcpServer(access: Access): McpServer {
 			if (!access.can(workspaceId)) return fail(`No access to workspace ${workspaceId}`);
 			const docs = await listDocs(workspaceId, { includeDrafts });
 			return ok(
-				docs.map((d) => ({
-					id: d.id,
-					slug: d.slug,
-					title: d.title,
-					mode: d.mode,
-					isPublic: d.isPublic,
-					publicSlug: d.publicSlug,
-					...(d.ephemeral ? { ephemeral: true } : {})
-				}))
+				docs.map((d) => {
+					const fm = d.frontmatter as Record<string, unknown> | null;
+					return {
+						id: d.id,
+						slug: d.slug,
+						title: d.title,
+						mode: d.mode,
+						updatedAt: d.updatedAt,
+						isPublic: d.isPublic,
+						publicSlug: d.publicSlug,
+						...(typeof fm?.repoPath === 'string' ? { repoPath: fm.repoPath } : {}),
+						...(d.ephemeral ? { ephemeral: true } : {})
+					};
+				})
 			);
 		}
 	);
@@ -254,7 +259,8 @@ export function buildMcpServer(access: Access): McpServer {
 		'get_doc',
 		{
 			title: 'Get a document',
-			description: 'Fetch a document by id, or by workspace + slug. Returns its source and metadata.',
+			description:
+				'Fetch a document by id, or by workspace + slug. Returns its source and metadata. Docs mirrored from a git repo also carry repoPath, repoCommit and repoCommitAt — the commit that last changed the file (as observed at sync time).',
 			inputSchema: {
 				id: z.string().optional(),
 				workspaceId: z.string().optional(),
@@ -270,6 +276,13 @@ export function buildMcpServer(access: Access): McpServer {
 			if (!doc) return fail('Document not found (provide id, or workspaceId + slug)');
 			if (!doc.isPublic && !access.can(doc.workspaceId)) return fail('Access denied');
 			const pending = await openPublishRequest(doc.id);
+			const fm = doc.frontmatter as Record<string, unknown> | null;
+			// Repo mirrors: where this doc came from and which commit last changed it.
+			const repo = Object.fromEntries(
+				(['repoPath', 'repoCommit', 'repoCommitAt'] as const)
+					.filter((k) => typeof fm?.[k] === 'string')
+					.map((k) => [k, fm![k]])
+			);
 			return ok({
 				id: doc.id,
 				workspaceId: doc.workspaceId,
@@ -278,6 +291,7 @@ export function buildMcpServer(access: Access): McpServer {
 				mode: doc.mode,
 				tags: doc.tags,
 				updatedAt: doc.updatedAt,
+				...repo,
 				isPublic: doc.isPublic,
 				publicSlug: doc.publicSlug,
 				publishedVersionNo: doc.publishedVersionNo,

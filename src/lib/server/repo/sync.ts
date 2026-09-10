@@ -221,6 +221,8 @@ async function runSync(workspaceId: string, opts: { force?: boolean }): Promise<
 				: {})
 		});
 		const commit = await git.resolveRef({ fs, dir, ref: 'HEAD' });
+		const head = await git.readCommit({ fs, dir, oid: commit });
+		const commitAt = new Date(head.commit.author.timestamp * 1000).toISOString();
 
 		if (!opts.force && cfg.lastCommit === commit) {
 			await saveConfigPatch(workspaceId, { lastSyncAt: new Date().toISOString(), lastError: null });
@@ -254,7 +256,9 @@ async function runSync(workspaceId: string, opts: { force?: boolean }): Promise<
 		for (const [filePath, content] of files) {
 			const hash = contentHash(content);
 			const current = byPath.get(filePath);
-			const frontmatter = { repoPath: filePath, repoHash: hash };
+			// Commit stamp is per-change, not per-file history (depth-1 clone has
+			// none): with webhook-per-push syncs it converges to the real commit.
+			const frontmatter = { repoPath: filePath, repoHash: hash, repoCommit: commit, repoCommitAt: commitAt };
 			const tags = [filePath.split('/')[0] === filePath ? 'root' : filePath.split('/')[0]];
 
 			if (!current) {
