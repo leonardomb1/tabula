@@ -260,7 +260,7 @@ export function buildMcpServer(access: Access): McpServer {
 		{
 			title: 'Get a document',
 			description:
-				'Fetch a document by id, or by workspace + slug. Returns its source and metadata. Docs mirrored from a git repo also carry repoPath, repoCommit and repoCommitAt — the commit that last changed the file (as observed at sync time).',
+				'Fetch a document by id, or by workspace + slug. Returns its source and metadata. Docs mirrored from a git repo also carry repoPath, repoCommit, repoCommitAt and repoAuthor — the commit that last changed the file (as observed at sync time).',
 			inputSchema: {
 				id: z.string().optional(),
 				workspaceId: z.string().optional(),
@@ -279,7 +279,7 @@ export function buildMcpServer(access: Access): McpServer {
 			const fm = doc.frontmatter as Record<string, unknown> | null;
 			// Repo mirrors: where this doc came from and which commit last changed it.
 			const repo = Object.fromEntries(
-				(['repoPath', 'repoCommit', 'repoCommitAt'] as const)
+				(['repoPath', 'repoCommit', 'repoCommitAt', 'repoAuthor'] as const)
 					.filter((k) => typeof fm?.[k] === 'string')
 					.map((k) => [k, fm![k]])
 			);
